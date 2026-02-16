@@ -1,15 +1,22 @@
+using BelekCommunity.Api.Data;
+using Microsoft.EntityFrameworkCore;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Controller desteði
-builder.Services.AddControllers();
+// 1. Veritabaný Baðlantýsý (PostgreSQL)
+// appsettings.json dosyasýndaki "DefaultConnection" ismini okur.
+builder.Services.AddDbContext<BelekCommunityDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"))
+           .UseSnakeCaseNamingConvention());
 
-// Swagger
+// 2. Servisler
+builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// Swagger middleware
+// 3. Middleware (Ýstek iþleme boru hattý)
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -18,7 +25,8 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-// Controller’larý map et (EN KRÝTÝK SATIR)
+app.UseAuthorization(); // Bu satýr genelde gereklidir
+
 app.MapControllers();
 
 app.Run();
