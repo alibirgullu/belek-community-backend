@@ -4,7 +4,6 @@ using Microsoft.EntityFrameworkCore;
 var builder = WebApplication.CreateBuilder(args);
 
 // 1. Veritabaný Baðlantýsý (PostgreSQL)
-// appsettings.json dosyasýndaki "DefaultConnection" ismini okur.
 builder.Services.AddDbContext<BelekCommunityDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"))
            .UseSnakeCaseNamingConvention());
