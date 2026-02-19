@@ -3,7 +3,6 @@ using Microsoft.EntityFrameworkCore;
 
 namespace BelekCommunity.Api.Data
 {
-    // Hatanın sebebi bu satırın veya süslü parantezlerin silinmesiydi
     public class BelekCommunityDbContext : DbContext
     {
         public BelekCommunityDbContext(DbContextOptions<BelekCommunityDbContext> options)
@@ -11,32 +10,34 @@ namespace BelekCommunity.Api.Data
         {
         }
 
-        // Tablo temsilleri
-        public DbSet<User> Users { get; set; }
+        public DbSet<MainUser> MainUsers { get; set; } // public.users
+        public DbSet<User> Users { get; set; }         // belek...platform_users
+
+        // Diğer tabloların...
         public DbSet<Community> Communities { get; set; }
         public DbSet<CommunityMember> CommunityMembers { get; set; }
         public DbSet<Event> Events { get; set; }
         public DbSet<Announcement> Announcements { get; set; }
 
-        // Veritabanı ayarları
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
-            
+            // Varsayılan şeman senin şeman
             modelBuilder.HasDefaultSchema("belek_student_community");
 
-            // 2. Tablo eşleştirmeleri
+            // --- 1. LOGIN TABLOSU (PUBLIC) ---
+            modelBuilder.Entity<MainUser>()
+                .ToTable("users", "public"); // Şema: public, Tablo: users
+
+            // --- 2. SENİN TABLOLARIN ---
             modelBuilder.Entity<User>().ToTable("platform_users");
             modelBuilder.Entity<Community>().ToTable("communities");
             modelBuilder.Entity<CommunityMember>().ToTable("community_members");
             modelBuilder.Entity<Event>().ToTable("events");
             modelBuilder.Entity<Announcement>().ToTable("announcements");
-            
 
-            // 3. Global Filtreler (Silinmiş kayıtları getirmeme)
+            // Global Filtreler
             modelBuilder.Entity<User>().HasQueryFilter(u => !u.IsDeleted);
-            modelBuilder.Entity<Community>().HasQueryFilter(c => !c.IsDeleted);
-            modelBuilder.Entity<Event>().HasQueryFilter(e => !e.IsDeleted);
-            modelBuilder.Entity<Announcement>().HasQueryFilter(a => !a.IsDeleted);
+            // Diğer filtreler...
         }
     }
 }

@@ -1,21 +1,64 @@
 using BelekCommunity.Api.Data;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Veritabaný Baðlantýsý (PostgreSQL)
+// 1. Veritabaný Baðlantýsý
 builder.Services.AddDbContext<BelekCommunityDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"))
            .UseSnakeCaseNamingConvention());
 
-// 2. Servisler
+// 2. CORS Ayarý (React Baðlantýsý Ýçin Þart)
+// Tarayýcý güvenliðini aþmak ve React'in API'ye eriþmesine izin vermek için.
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowReactApp",
+        policy =>
+        {
+            policy.WithOrigins("http://localhost:5173", "http://localhost:3000") // React genelde bu portlarda çalýþýr
+                  .AllowAnyHeader()
+                  .AllowAnyMethod();
+        });
+});
+
+// 3. JWT Authentication Ayarlarý
+var jwtSettings = builder.Configuration.GetSection("JwtSettings");
+// Eðer appsettings.json'da key yoksa hata vermesin diye varsayýlan bir key (Geliþtirme için)
+var secretKeyString = jwtSettings["SecretKey"] ?? "VarsayilanGizliAnahtar";
+var secretKey = Encoding.UTF8.GetBytes(secretKeyString);
+
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        ValidIssuer = jwtSettings["Issuer"],
+        ValidAudience = jwtSettings["Audience"],
+        IssuerSigningKey = new SymmetricSecurityKey(secretKey)
+    };
+});
+
+// 4. Standart Servisler
+builder.Services.AddScoped<BelekCommunity.Api.Services.EmailService>();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// 3. Middleware (Ýstek iþleme boru hattý)
+// --- MIDDLEWARE (SIRALAMA ÇOK ÖNEMLÝDÝR) ---
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -24,7 +67,14 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-app.UseAuthorization(); // Bu satýr genelde gereklidir
+// 1. Önce CORS (React'e kapýyý aç)
+app.UseCors("AllowReactApp");
+
+// 2. Sonra Kimlik Doðrulama (Kimsin?)
+app.UseAuthentication();
+
+// 3. Sonra Yetki Kontrolü (Yetkin var mý?)
+app.UseAuthorization();
 
 app.MapControllers();
 

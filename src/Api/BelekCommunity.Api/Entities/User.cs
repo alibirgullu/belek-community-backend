@@ -1,34 +1,43 @@
-﻿using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations.Schema;
 
 namespace BelekCommunity.Api.Entities
 {
+    // Senin şemandaki tablo
+    [Table("platform_users", Schema = "belek_student_community")]
     public class User
     {
+        [Column("id")]
         public int Id { get; set; }
 
-        // Şemada external_user_id var, sanırım ilerde auth servisi ayırırsan diye.
-        // Şimdilik Guid tutabiliriz.
-        public Guid ExternalUserId { get; set; }
+        // Resimde external_user_id (int) görünüyor (123 ikonu var)
+        [Column("external_user_id")]
+        public int ExternalUserId { get; set; }
 
-        [Required]
-        [MaxLength(100)]
+        [Column("student_number")]
+        public string? StudentNumber { get; set; }
+
+        [Column("first_name")]
         public string FirstName { get; set; } = string.Empty;
 
-        [Required]
-        [MaxLength(100)]
+        [Column("last_name")]
         public string LastName { get; set; } = string.Empty;
 
-        [Required]
-        public string Email { get; set; } = string.Empty; // Belek.edu.tr kontrolü business logic'te olacak
-
+        [Column("profile_image_url")]
         public string? ProfileImageUrl { get; set; }
 
-        public bool IsDeleted { get; set; } = false; // Soft Delete gereksinimi [cite: 316]
+        [Column("phone")]
+        public string? Phone { get; set; }
 
+        [Column("status")]
+        public string Status { get; set; } = "Active";
+
+        [Column("is_deleted")]
+        public bool IsDeleted { get; set; }
+
+        [Column("created_at")]
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-        public DateTime? UpdatedAt { get; set; }
 
-        // İlişkiler (Navigation Properties)
-        public ICollection<CommunityMember> Memberships { get; set; } = new List<CommunityMember>();
+        [Column("updated_at")]
+        public DateTime? UpdatedAt { get; set; }
     }
 }
