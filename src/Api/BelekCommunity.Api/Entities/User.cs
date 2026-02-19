@@ -2,14 +2,14 @@
 
 namespace BelekCommunity.Api.Entities
 {
-    // Senin şemandaki tablo
+    
     [Table("platform_users", Schema = "belek_student_community")]
     public class User
     {
         [Column("id")]
         public int Id { get; set; }
 
-        // Resimde external_user_id (int) görünüyor (123 ikonu var)
+        
         [Column("external_user_id")]
         public int ExternalUserId { get; set; }
 

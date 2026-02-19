@@ -13,12 +13,13 @@ namespace BelekCommunity.Api.Data
         public DbSet<MainUser> MainUsers { get; set; } // public.users
         public DbSet<User> Users { get; set; }         // belek...platform_users
 
-        // Diğer tabloların...
+        
         public DbSet<Community> Communities { get; set; }
         public DbSet<CommunityMember> CommunityMembers { get; set; }
         public DbSet<Event> Events { get; set; }
         public DbSet<Announcement> Announcements { get; set; }
-
+        public DbSet<CommunityRole> CommunityRoles { get; set; }
+        public DbSet<Notification> Notifications { get; set; }
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             // Varsayılan şeman senin şeman
@@ -34,7 +35,8 @@ namespace BelekCommunity.Api.Data
             modelBuilder.Entity<CommunityMember>().ToTable("community_members");
             modelBuilder.Entity<Event>().ToTable("events");
             modelBuilder.Entity<Announcement>().ToTable("announcements");
-
+            modelBuilder.Entity<CommunityRole>().ToTable("community_roles");
+            modelBuilder.Entity<Notification>().ToTable("notifications");
             // Global Filtreler
             modelBuilder.Entity<User>().HasQueryFilter(u => !u.IsDeleted);
             // Diğer filtreler...

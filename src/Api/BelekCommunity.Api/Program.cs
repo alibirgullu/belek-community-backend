@@ -2,6 +2,7 @@ using BelekCommunity.Api.Data;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models; // Swagger yetkilendirme modelleri için gerekli
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -53,7 +54,38 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddScoped<BelekCommunity.Api.Services.EmailService>();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+
+// --- 5. SWAGGER GÜNCELLEMESÝ (JWT BEARER DESTEÐÝ) ---
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "Belek Community API", Version = "v1" });
+
+    // Swagger'a "Authorize" butonu ekliyoruz
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = "JWT Token'ýnýzý girerken baþýna 'Bearer ' yazmayý unutmayýn. Örnek: Bearer eyJhbGci...",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.ApiKey,
+        Scheme = "Bearer"
+    });
+
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
+// ----------------------------------------------------
 
 var app = builder.Build();
 

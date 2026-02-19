@@ -2,11 +2,14 @@
 using Microsoft.EntityFrameworkCore;
 using BelekCommunity.Api.Data;
 using BelekCommunity.Api.Entities;
+using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims; // Token'dan ID okumak için
 
 namespace BelekCommunity.Api.Controllers
 {
     [Route("api/communities/{communityId}/members")]
     [ApiController]
+    [Authorize] // KALKAN 1: Bu controller'a sadece giriş yapanlar ulaşabilir
     public class CommunityMembersController : ControllerBase
     {
         private readonly BelekCommunityDbContext _context;
@@ -20,28 +23,35 @@ namespace BelekCommunity.Api.Controllers
         [HttpPost("join")]
         public async Task<IActionResult> JoinCommunity(int communityId)
         {
-            // --- GEÇİCİ KOD (Auth gelene kadar) ---
-            int currentUserId = 1;
-            // --------------------------------
+            // --- KALKAN 2: Sahte ID yerine Token'dan gerçek ID'yi okuyoruz ---
+            var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userIdString)) return Unauthorized();
+            int currentUserId = int.Parse(userIdString);
+            // ------------------------------------------------------------------
 
             var community = await _context.Communities.FindAsync(communityId);
             if (community == null) return NotFound("Topluluk bulunamadı.");
 
-            // Zaten bir kaydı var mı?
             var existingMembership = await _context.CommunityMembers
-                .FirstOrDefaultAsync(m => m.CommunityId == communityId && m.UserId == currentUserId);
+                .FirstOrDefaultAsync(m => m.CommunityId == communityId && m.PlatformUserId == currentUserId);
 
             if (existingMembership != null)
             {
                 return BadRequest($"Zaten bir kaydınız var. Şu anki durumunuz: {existingMembership.Status}");
             }
 
+            var defaultRole = await _context.CommunityRoles.FirstOrDefaultAsync(r => r.Name == "Member");
+            if (defaultRole == null)
+            {
+                return BadRequest("Sistemde 'Member' rolü tanımlı değil. Lütfen veritabanına ekleyin.");
+            }
+
             var membership = new CommunityMember
             {
                 CommunityId = communityId,
-                UserId = currentUserId,
-                Role = "Member",       // Rol: Standart Üye
-                Status = "Pending",    // Durum: Onay Bekliyor (Veritabanındaki kolona yazılacak)
+                PlatformUserId = currentUserId,
+                CommunityRoleId = defaultRole.Id,
+                Status = "Pending",
                 IsDeleted = false,
                 CreatedAt = DateTime.UtcNow
             };
@@ -58,15 +68,16 @@ namespace BelekCommunity.Api.Controllers
         {
             var members = await _context.CommunityMembers
                 .Where(m => m.CommunityId == communityId && !m.IsDeleted)
-                .Include(m => m.User)
+                .Include(m => m.PlatformUser)
+                .Include(m => m.CommunityRole)
                 .Select(m => new
                 {
                     m.Id,
-                    UserId = m.UserId,
-                    FullName = m.User.FirstName + " " + m.User.LastName,
-                    ProfileImageUrl = m.User.ProfileImageUrl,
-                    Role = m.Role,      // Örn: Member
-                    Status = m.Status,  // Örn: Pending, Approved
+                    UserId = m.PlatformUserId,
+                    FullName = m.PlatformUser.FirstName + " " + m.PlatformUser.LastName,
+                    ProfileImageUrl = m.PlatformUser.ProfileImageUrl,
+                    Role = m.CommunityRole.Name,
+                    Status = m.Status,
                     JoinedAt = m.CreatedAt
                 })
                 .ToListAsync();
@@ -75,22 +86,43 @@ namespace BelekCommunity.Api.Controllers
         }
 
         // 3. Üyeyi Çıkar / İsteği İptal Et (DELETE)
-        [HttpDelete("{userId}")]
-        public async Task<IActionResult> RemoveMember(int communityId, int userId)
+        [HttpDelete("{platformUserId}")]
+        public async Task<IActionResult> RemoveMember(int communityId, int platformUserId)
         {
+            // 1. İsteği Yapanın Kimliğini Al
+            var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userIdString)) return Unauthorized();
+            int requestUserId = int.Parse(userIdString);
+
+            // --- KALKAN 3: YETKİ KONTROLÜ ---
+            // Eğer isteği yapan kişi (requestUserId) ile silinmek istenen kişi (platformUserId) FARKLIYSA,
+            // demek ki birisi başkasını gruptan atmaya çalışıyor. O zaman "Yönetici" yetkisine bakalım:
+            if (requestUserId != platformUserId)
+            {
+                var requestUserMembership = await _context.CommunityMembers
+                    .Include(m => m.CommunityRole)
+                    .FirstOrDefaultAsync(m => m.CommunityId == communityId && m.PlatformUserId == requestUserId && !m.IsDeleted);
+
+                // Bu adam üye değilse veya CanManageMembers (Üye Yönetimi) yetkisi yoksa yasakla!
+                if (requestUserMembership == null || !requestUserMembership.CommunityRole.CanManageMembers)
+                {
+                    return StatusCode(403, new { Message = "Başka bir üyeyi gruptan çıkarma yetkiniz bulunmamaktadır." });
+                }
+            }
+            // (Eğer kendi kendini siliyorsa yukarıdaki if bloğuna girmez, direkt silinir - gruptan çıkma mantığı)
+
+            // 2. Silinecek kaydı bul
             var membership = await _context.CommunityMembers
-                .FirstOrDefaultAsync(m => m.CommunityId == communityId && m.UserId == userId);
+                .FirstOrDefaultAsync(m => m.CommunityId == communityId && m.PlatformUserId == platformUserId);
 
             if (membership == null) return NotFound("Kayıt bulunamadı.");
 
-            // Soft Delete
+            // 3. Soft Delete yap
             membership.IsDeleted = true;
-            // İstersen statüyü de güncelleyebilirsin
-            // membership.Status = "Removed"; 
 
             await _context.SaveChangesAsync();
 
-            return Ok(new { Message = "Kullanıcı topluluktan çıkarıldı." });
+            return Ok(new { Message = "İşlem başarılı. Kullanıcı topluluktan çıkarıldı." });
         }
     }
 }

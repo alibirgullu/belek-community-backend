@@ -3,11 +3,13 @@ using Microsoft.EntityFrameworkCore;
 using BelekCommunity.Api.Data;
 using BelekCommunity.Api.Entities;
 using BelekCommunity.Api.Models;
+using Microsoft.AspNetCore.Authorization; 
 
 namespace BelekCommunity.Api.Controllers
 {
-    [Route("api/[controller]")] // Tarayıcıda: api/communities
+    [Route("api/[controller]")]
     [ApiController]
+    [Authorize] 
     public class CommunitiesController : ControllerBase
     {
         private readonly BelekCommunityDbContext _context;
@@ -17,32 +19,31 @@ namespace BelekCommunity.Api.Controllers
             _context = context;
         }
 
-        // GET: api/communities (Tüm toplulukları listele)
+        // HERKES GÖREBİLİR (Sadece sisteme giriş yapmış olmak yeterli)
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            // Veritabanındaki 'communities' tablosundan verileri çeker
             var communities = await _context.Communities
                                             .OrderByDescending(c => c.CreatedAt)
                                             .ToListAsync();
             return Ok(communities);
         }
 
-        // POST: api/communities (Yeni topluluk oluştur)
+        // SADECE SKS (SuperAdmin) YENİ TOPLULUK AÇABİLİR
+        [Authorize(Roles = "SuperAdmin")] // Kritik satır!
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] CreateCommunityRequest request)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            // Gelen isteği veritabanı nesnesine çeviriyoruz
             var newCommunity = new Community
             {
                 Name = request.Name,
                 Description = request.Description,
                 LogoUrl = request.LogoUrl,
                 CoverImageUrl = request.CoverImageUrl,
-                Status = "Pending", // İlk başta onay bekliyor olsun
+                Status = "Pending",
                 CreatedAt = DateTime.UtcNow,
                 IsDeleted = false
             };
