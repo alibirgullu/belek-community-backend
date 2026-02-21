@@ -35,10 +35,11 @@ namespace BelekCommunity.Api.Services
 
                 var newCode = Random.Shared.Next(100000, 999999).ToString();
                 var newExpires = DateTime.UtcNow.AddMinutes(3);
+                var hashedPasswordForUpdate = BCrypt.Net.BCrypt.HashPassword(request.Password);
 
                 await _context.Database.ExecuteSqlRawAsync(
                     "SELECT public.update_user_full_profile({0}, {1}, {2}::timestamp, {3}, {4}, {5}, CAST(NULL AS text))",
-                    request.Email, newCode, newExpires, request.Password, request.FirstName, request.LastName
+                    request.Email, newCode, newExpires, hashedPasswordForUpdate, request.FirstName, request.LastName
                 );
 
                 try { _emailService.SendVerificationCode(request.Email, newCode); }
@@ -54,12 +55,14 @@ namespace BelekCommunity.Api.Services
                 nextId = await _context.MainUsers.MaxAsync(u => u.Id) + 1;
             }
 
+            var hashedPassword = BCrypt.Net.BCrypt.HashPassword(request.Password);
+
             var newMainUser = new MainUser
             {
                 Id = nextId,
                 Username = request.Email,
                 Email = request.Email,
-                PasswordHash = request.Password,
+                PasswordHash = hashedPassword,
                 FirstName = request.FirstName,
                 LastName = request.LastName,
                 UserType = request.UserType,
@@ -117,7 +120,7 @@ namespace BelekCommunity.Api.Services
         {
             var mainUser = await _context.MainUsers.FirstOrDefaultAsync(u => u.Email == request.Email);
 
-            if (mainUser == null || mainUser.PasswordHash != request.Password)
+            if (mainUser == null || !BCrypt.Net.BCrypt.Verify(request.Password, mainUser.PasswordHash))
                 return (false, "E-posta veya şifre hatalı.", null, null, null, null);
 
             if (!mainUser.IsEmailVerified)
