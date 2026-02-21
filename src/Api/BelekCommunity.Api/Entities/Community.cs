@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Logging;
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace BelekCommunity.Api.Entities
 {
@@ -16,7 +17,9 @@ namespace BelekCommunity.Api.Entities
         public string? LogoUrl { get; set; }
         public string? CoverImageUrl { get; set; }
 
-        
+        [Column("category_id")]
+        public int? CategoryId { get; set; }
+        public CommunityCategory? Category { get; set; }
         public string Status { get; set; } = "Pending";
 
         public bool IsDeleted { get; set; } = false;

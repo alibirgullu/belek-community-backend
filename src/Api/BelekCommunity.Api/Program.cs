@@ -52,6 +52,12 @@ builder.Services.AddAuthentication(options =>
 
 // 4. Standart Servisler
 builder.Services.AddScoped<BelekCommunity.Api.Services.EmailService>();
+builder.Services.AddScoped<BelekCommunity.Api.Services.IEventService, BelekCommunity.Api.Services.EventService>();
+builder.Services.AddScoped<BelekCommunity.Api.Services.IAnnouncementService, BelekCommunity.Api.Services.AnnouncementService>();
+builder.Services.AddScoped<BelekCommunity.Api.Services.IUserService, BelekCommunity.Api.Services.UserService>();
+builder.Services.AddScoped<BelekCommunity.Api.Services.IFileService, BelekCommunity.Api.Services.FileService>();
+builder.Services.AddScoped<BelekCommunity.Api.Services.ICommunityService, BelekCommunity.Api.Services.CommunityService>();
+builder.Services.AddScoped<BelekCommunity.Api.Services.ICommunityMemberService, BelekCommunity.Api.Services.CommunityMemberService>();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
