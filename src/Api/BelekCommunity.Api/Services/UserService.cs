@@ -222,5 +222,63 @@ namespace BelekCommunity.Api.Services
                 UpcomingEvents = upcomingEvents
             };
         }
+
+        // --- YENİ EKLENEN ŞİFRE SIFIRLAMA METOTLARI ---
+
+        public async Task<(bool IsSuccess, string Message)> ForgotPasswordAsync(string email)
+        {
+            var user = await _context.MainUsers.FirstOrDefaultAsync(u => u.Email == email);
+
+            // Prototip aşamasında hataları net görmek için "Kullanıcı bulunamadı" dönüyoruz.
+            if (user == null)
+                return (false, "Bu e-posta adresine kayıtlı bir hesap bulunamadı.");
+
+            // 6 haneli rastgele yeni bir kod üret
+            var resetCode = Random.Shared.Next(100000, 999999).ToString();
+
+            // Veritabanındaki ilgili kolonları güncelle
+            user.PasswordResetToken = resetCode;
+            user.PasswordResetExpires = DateTime.UtcNow.AddMinutes(15); // Kod 15 dakika geçerli
+
+            await _context.SaveChangesAsync();
+
+            // Kullanıcıya şifre sıfırlama kodunu mail at
+            try
+            {
+                _emailService.SendVerificationCode(user.Email, resetCode);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Mail gönderim hatası: " + ex.Message);
+            }
+
+            return (true, "Şifre sıfırlama kodu e-posta adresinize gönderildi.");
+        }
+
+        public async Task<(bool IsSuccess, string Message)> ResetPasswordAsync(ResetPasswordRequest request)
+        {
+            var user = await _context.MainUsers.FirstOrDefaultAsync(u => u.Email == request.Email);
+            if (user == null)
+                return (false, "Kullanıcı bulunamadı.");
+
+            // Kod ve süre kontrolleri
+            if (user.PasswordResetToken != request.Token)
+                return (false, "Girdiğiniz doğrulama kodu hatalı.");
+
+            if (user.PasswordResetExpires < DateTime.UtcNow)
+                return (false, "Şifre sıfırlama kodunun süresi dolmuş. Lütfen tekrar istekte bulunun.");
+
+            // Her şey doğruysa yeni şifreyi BCrypt ile şifreleyip kaydet
+            user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+
+            // Kullanılan tek kullanımlık kodu temizle
+            user.PasswordResetToken = null;
+            user.PasswordResetExpires = null;
+            user.UpdateDate = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync();
+
+            return (true, "Şifreniz başarıyla güncellendi. Artık yeni şifrenizle giriş yapabilirsiniz.");
+        }
     }
 }

@@ -77,5 +77,31 @@ namespace BelekCommunity.Api.Controllers
 
             return Ok(profile);
         }
+
+        [HttpPost("forgot-password")]
+        public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            var result = await _userService.ForgotPasswordAsync(request.Email);
+
+            if (!result.IsSuccess)
+                return BadRequest(new { Message = result.Message });
+
+            return Ok(new { Message = result.Message });
+        }
+
+        [HttpPost("reset-password")]
+        public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            var result = await _userService.ResetPasswordAsync(request);
+
+            if (!result.IsSuccess)
+                return BadRequest(new { Message = result.Message });
+
+            return Ok(new { Message = result.Message });
+        }
     }
 }

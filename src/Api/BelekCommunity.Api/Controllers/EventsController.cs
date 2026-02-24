@@ -63,5 +63,25 @@ namespace BelekCommunity.Api.Controllers
 
             return Ok(new { Message = result.Message });
         }
+        [HttpPut("{eventId}/cancel")]
+        [Authorize]
+        public async Task<IActionResult> Cancel(int eventId)
+        {
+            var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userIdString)) return Unauthorized();
+            int currentUserId = int.Parse(userIdString);
+
+            var result = await _eventService.CancelEventAsync(currentUserId, eventId);
+
+            if (!result.IsSuccess)
+            {
+                if (result.Message.Contains("yetkiniz bulunmamaktadır"))
+                    return StatusCode(403, new { Message = result.Message });
+
+                return BadRequest(new { Message = result.Message });
+            }
+
+            return Ok(new { Message = result.Message });
+        }
     }
 }

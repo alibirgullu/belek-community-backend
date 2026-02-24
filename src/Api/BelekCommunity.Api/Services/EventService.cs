@@ -8,10 +8,12 @@ namespace BelekCommunity.Api.Services
     public class EventService : IEventService
     {
         private readonly BelekCommunityDbContext _context;
+        private readonly EmailService _emailService;
 
-        public EventService(BelekCommunityDbContext context)
+        public EventService(BelekCommunityDbContext context, EmailService emailService)
         {
             _context = context;
+            _emailService = emailService;
         }
 
         public async Task<IEnumerable<Event>> GetAllEventsAsync()
@@ -121,6 +123,78 @@ namespace BelekCommunity.Api.Services
             await _context.SaveChangesAsync();
 
             return (true, "Etkinliğe başarıyla katıldınız.");
+        }
+
+        // --- YENİ EKLENEN ETKİNLİK İPTAL VE MAİL METODU ---
+
+        public async Task<(bool IsSuccess, string Message)> CancelEventAsync(int currentUserId, int eventId)
+        {
+            // 1. Etkinliği bul
+            var targetEvent = await _context.Events
+                .Include(e => e.Community)
+                .FirstOrDefaultAsync(e => e.Id == eventId && !e.IsDeleted);
+
+            if (targetEvent == null)
+                return (false, "Etkinlik bulunamadı.");
+
+            if (targetEvent.IsCancelled)
+                return (false, "Bu etkinlik zaten iptal edilmiş.");
+
+            // 2. Yetki Kontrolü
+            var member = await _context.CommunityMembers
+                .Include(m => m.CommunityRole)
+                .FirstOrDefaultAsync(m => m.CommunityId == targetEvent.CommunityId && m.PlatformUserId == currentUserId && !m.IsDeleted);
+
+            if (member == null || !member.CommunityRole.CanCreateEvent)
+            {
+                return (false, "Bu etkinliği iptal etme yetkiniz bulunmamaktadır.");
+            }
+
+            // 3. Etkinliği İptal Et
+            targetEvent.IsCancelled = true;
+
+            // 4. Katılımcıları Bul ve Bildirim/E-posta Gönder
+            var participants = await _context.EventParticipants
+                .Include(ep => ep.PlatformUser)
+                .Where(ep => ep.EventId == eventId && !ep.IsDeleted && ep.Status == "Going")
+                .ToListAsync();
+
+            if (participants.Any())
+            {
+                var notifications = new List<Notification>();
+
+                foreach (var participant in participants)
+                {
+                    // Sistem içi bildirim
+                    notifications.Add(new Notification
+                    {
+                        PlatformUserId = participant.PlatformUserId,
+                        Title = "Etkinlik İptal Edildi",
+                        Message = $"{targetEvent.Community.Name} tarafından düzenlenen '{targetEvent.Title}' etkinliği iptal edilmiştir.",
+                        Type = "System",
+                        CreatedAt = DateTime.UtcNow
+                    });
+
+                    // E-posta gönderimi (Ana kullanıcıyı bularak mail atıyoruz)
+                    try
+                    {
+                        var mainUser = await _context.MainUsers.FirstOrDefaultAsync(u => u.Id == participant.PlatformUser.ExternalUserId);
+                        if (mainUser != null)
+                        {
+                            _emailService.SendEventCancellationEmail(mainUser.Email, targetEvent.Title, targetEvent.Community.Name);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine("İptal maili gönderilemedi: " + ex.Message);
+                    }
+                }
+
+                _context.Notifications.AddRange(notifications);
+            }
+
+            await _context.SaveChangesAsync();
+            return (true, "Etkinlik iptal edildi ve tüm katılımcılara bilgilendirme e-postası gönderildi.");
         }
     }
 }

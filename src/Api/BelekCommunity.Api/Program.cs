@@ -58,6 +58,7 @@ builder.Services.AddScoped<BelekCommunity.Api.Services.IUserService, BelekCommun
 builder.Services.AddScoped<BelekCommunity.Api.Services.IFileService, BelekCommunity.Api.Services.FileService>();
 builder.Services.AddScoped<BelekCommunity.Api.Services.ICommunityService, BelekCommunity.Api.Services.CommunityService>();
 builder.Services.AddScoped<BelekCommunity.Api.Services.ICommunityMemberService, BelekCommunity.Api.Services.CommunityMemberService>();
+builder.Services.AddHttpClient<BelekCommunity.Api.Services.IAiChatService, BelekCommunity.Api.Services.AiChatService>();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
