@@ -223,62 +223,107 @@ namespace BelekCommunity.Api.Services
             };
         }
 
-        // --- YENİ EKLENEN ŞİFRE SIFIRLAMA METOTLARI ---
-
-        public async Task<(bool IsSuccess, string Message)> ForgotPasswordAsync(string email)
+        // --- PROFİL GÜNCELLEME METODU ---
+        public async Task<(bool IsSuccess, string Message)> UpdateProfileAsync(int platformUserId, UpdateProfileRequest request)
         {
-            var user = await _context.MainUsers.FirstOrDefaultAsync(u => u.Email == email);
+            var platformUser = await _context.Users
+                .FirstOrDefaultAsync(u => u.Id == platformUserId && !u.IsDeleted);
 
-            // Prototip aşamasında hataları net görmek için "Kullanıcı bulunamadı" dönüyoruz.
-            if (user == null)
-                return (false, "Bu e-posta adresine kayıtlı bir hesap bulunamadı.");
+            if (platformUser == null)
+                return (false, "Kullanıcı bulunamadı.");
 
-            // 6 haneli rastgele yeni bir kod üret
-            var resetCode = Random.Shared.Next(100000, 999999).ToString();
+            if (request.ProfileImageUrl != null)
+                platformUser.ProfileImageUrl = request.ProfileImageUrl;
 
-            // Veritabanındaki ilgili kolonları güncelle
-            user.PasswordResetToken = resetCode;
-            user.PasswordResetExpires = DateTime.UtcNow.AddMinutes(15); // Kod 15 dakika geçerli
+            if (request.Phone != null)
+                platformUser.Phone = request.Phone;
+
+            platformUser.UpdatedAt = DateTime.UtcNow;
+
+            if (request.Biography != null)
+            {
+                var userDetail = await _context.PlatformUserDetails
+                    .FirstOrDefaultAsync(d => d.PlatformUserId == platformUserId && !d.IsDeleted);
+
+                if (userDetail == null)
+                {
+                    userDetail = new PlatformUserDetail
+                    {
+                        PlatformUserId = platformUserId,
+                        Biography = request.Biography,
+                        CreatedAt = DateTime.UtcNow,
+                        IsDeleted = false
+                    };
+                    _context.PlatformUserDetails.Add(userDetail);
+                }
+                else
+                {
+                    userDetail.Biography = request.Biography;
+                    userDetail.UpdatedAt = DateTime.UtcNow;
+                }
+            }
 
             await _context.SaveChangesAsync();
 
-            // Kullanıcıya şifre sıfırlama kodunu mail at
-            try
+            return (true, "Profiliniz başarıyla güncellendi.");
+        }
+
+        // --- YENİ ŞİFRE SIFIRLAMA METOTLARI (DBA UYUMLU, SADECE INSERT YAPAN) ---
+        public async Task<(bool IsSuccess, string Message)> ForgotPasswordAsync(string email)
+        {
+            var mainUser = await _context.MainUsers.FirstOrDefaultAsync(u => u.Email == email);
+            if (mainUser == null) return (false, "Bu e-posta adresine kayıtlı bir hesap bulunamadı.");
+
+            var platformUser = await _context.Users.FirstOrDefaultAsync(u => u.ExternalUserId == mainUser.Id);
+            if (platformUser == null) return (false, "Kullanıcı profilinizde bir hata var.");
+
+            var resetCode = Random.Shared.Next(100000, 999999).ToString();
+
+            // DBA'in izni olmadığı için ana tabloyu güncellemek (UPDATE) yerine, 
+            // sadece yeni tabloya kayıt atıyoruz (INSERT).
+            var resetToken = new PasswordResetToken
             {
-                _emailService.SendVerificationCode(user.Email, resetCode);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("Mail gönderim hatası: " + ex.Message);
-            }
+                PlatformUserId = platformUser.Id,
+                Token = resetCode,
+                ExpiresAt = DateTime.UtcNow.AddMinutes(15),
+                IsUsed = false,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _context.PasswordResetTokens.Add(resetToken);
+            await _context.SaveChangesAsync();
+
+            try { _emailService.SendVerificationCode(mainUser.Email, resetCode); }
+            catch (Exception ex) { Console.WriteLine("Mail hatası: " + ex.Message); }
 
             return (true, "Şifre sıfırlama kodu e-posta adresinize gönderildi.");
         }
 
         public async Task<(bool IsSuccess, string Message)> ResetPasswordAsync(ResetPasswordRequest request)
         {
-            var user = await _context.MainUsers.FirstOrDefaultAsync(u => u.Email == request.Email);
-            if (user == null)
-                return (false, "Kullanıcı bulunamadı.");
+            var mainUser = await _context.MainUsers.FirstOrDefaultAsync(u => u.Email == request.Email);
+            if (mainUser == null) return (false, "Kullanıcı bulunamadı.");
 
-            // Kod ve süre kontrolleri
-            if (user.PasswordResetToken != request.Token)
-                return (false, "Girdiğiniz doğrulama kodu hatalı.");
+            var platformUser = await _context.Users.FirstOrDefaultAsync(u => u.ExternalUserId == mainUser.Id);
+            if (platformUser == null) return (false, "Kullanıcı profil hatası.");
 
-            if (user.PasswordResetExpires < DateTime.UtcNow)
-                return (false, "Şifre sıfırlama kodunun süresi dolmuş. Lütfen tekrar istekte bulunun.");
+            var activeToken = await _context.PasswordResetTokens
+                .Where(t => t.PlatformUserId == platformUser.Id && t.Token == request.Token && !t.IsUsed && t.ExpiresAt > DateTime.UtcNow)
+                .OrderByDescending(t => t.CreatedAt)
+                .FirstOrDefaultAsync();
 
-            // Her şey doğruysa yeni şifreyi BCrypt ile şifreleyip kaydet
-            user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+            if (activeToken == null) return (false, "Girdiğiniz kod hatalı veya süresi dolmuş.");
 
-            // Kullanılan tek kullanımlık kodu temizle
-            user.PasswordResetToken = null;
-            user.PasswordResetExpires = null;
-            user.UpdateDate = DateTime.UtcNow;
+            var hashedPassword = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
 
-            await _context.SaveChangesAsync();
+            // DİKKAT: UPDATE işlemi DBA kısıtlamasına takıldığı için, şifre güncellemeyi
+            // veritabanındaki özel fonksiyon ile (Stored Procedure/Function) yapıyoruz.
+            await _context.Database.ExecuteSqlRawAsync(
+                "SELECT public.reset_user_password({0}, {1}, {2})",
+                request.Email, hashedPassword, activeToken.Id
+            );
 
-            return (true, "Şifreniz başarıyla güncellendi. Artık yeni şifrenizle giriş yapabilirsiniz.");
+            return (true, "Şifreniz başarıyla güncellendi. Yeni şifrenizle giriş yapabilirsiniz.");
         }
     }
 }

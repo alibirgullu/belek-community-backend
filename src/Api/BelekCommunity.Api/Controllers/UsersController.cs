@@ -103,5 +103,20 @@ namespace BelekCommunity.Api.Controllers
 
             return Ok(new { Message = result.Message });
         }
-    }
+        [HttpPut("me")]
+        [Authorize]
+        public async Task<IActionResult> UpdateMyProfile([FromBody] UpdateProfileRequest request)
+        {
+            var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userIdString)) return Unauthorized();
+            int currentUserId = int.Parse(userIdString);
+
+            var result = await _userService.UpdateProfileAsync(currentUserId, request);
+
+            if (!result.IsSuccess)
+                return BadRequest(new { Message = result.Message });
+
+            return Ok(new { Message = result.Message });
+        }
+    } 
 }

@@ -20,7 +20,7 @@ namespace BelekCommunity.Api.Data
         public DbSet<CommunityRole> CommunityRoles { get; set; }
         public DbSet<Notification> Notifications { get; set; }
 
-        // --- YENİ EKLENEN TABLOLAR ---
+        public DbSet<PasswordResetToken> PasswordResetTokens { get; set; }
         public DbSet<CommunityCategory> CommunityCategories { get; set; }
         public DbSet<EventParticipant> EventParticipants { get; set; }
         public DbSet<EventFeedback> EventFeedbacks { get; set; }
