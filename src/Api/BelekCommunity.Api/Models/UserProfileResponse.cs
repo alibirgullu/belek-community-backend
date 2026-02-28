@@ -9,7 +9,7 @@
         public string? ProfileImageUrl { get; set; }
         public string? Phone { get; set; }
         public string? Biography { get; set; } // platform_user_detail tablosundan gelecek
-
+        public string? Department { get; set; }
         public List<UserCommunityDto> MyCommunities { get; set; } = new();
         public List<UserEventDto> UpcomingEvents { get; set; } = new();
     }

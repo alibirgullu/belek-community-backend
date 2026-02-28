@@ -23,5 +23,7 @@ namespace BelekCommunity.Api.Entities
 
         [Column("is_deleted")]
         public bool IsDeleted { get; set; } = false;
+
+        public string? Department { get; set; }
     }
 }

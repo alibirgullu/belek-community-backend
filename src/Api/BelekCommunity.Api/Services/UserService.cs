@@ -218,6 +218,7 @@ namespace BelekCommunity.Api.Services
                 ProfileImageUrl = platformUser.ProfileImageUrl,
                 Phone = platformUser.Phone,
                 Biography = userDetail?.Biography,
+                Department = userDetail?.Department,
                 MyCommunities = myCommunities,
                 UpcomingEvents = upcomingEvents
             };
@@ -240,7 +241,8 @@ namespace BelekCommunity.Api.Services
 
             platformUser.UpdatedAt = DateTime.UtcNow;
 
-            if (request.Biography != null)
+            // YENİ MANTIK: Biyografi VEYA Bölüm verisinden herhangi biri geldiyse Detay tablosunu işle
+            if (request.Biography != null || request.Department != null)
             {
                 var userDetail = await _context.PlatformUserDetails
                     .FirstOrDefaultAsync(d => d.PlatformUserId == platformUserId && !d.IsDeleted);
@@ -250,15 +252,22 @@ namespace BelekCommunity.Api.Services
                     userDetail = new PlatformUserDetail
                     {
                         PlatformUserId = platformUserId,
-                        Biography = request.Biography,
                         CreatedAt = DateTime.UtcNow,
                         IsDeleted = false
                     };
+
+                    // Hangisi doluysa onu ata
+                    if (request.Biography != null) userDetail.Biography = request.Biography;
+                    if (request.Department != null) userDetail.Department = request.Department; // 1.b ŞIKKI BURADA EKLENDİ
+
                     _context.PlatformUserDetails.Add(userDetail);
                 }
                 else
                 {
-                    userDetail.Biography = request.Biography;
+                    // Hangisi doluysa onu güncelle
+                    if (request.Biography != null) userDetail.Biography = request.Biography;
+                    if (request.Department != null) userDetail.Department = request.Department; // 1.b ŞIKKI BURADA EKLENDİ
+
                     userDetail.UpdatedAt = DateTime.UtcNow;
                 }
             }

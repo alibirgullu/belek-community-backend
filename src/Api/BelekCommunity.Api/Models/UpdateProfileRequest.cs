@@ -5,5 +5,6 @@
         public string? ProfileImageUrl { get; set; }
         public string? Phone { get; set; }
         public string? Biography { get; set; }
+        public string? Department { get; set; }
     }
 }
