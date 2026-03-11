@@ -2,33 +2,44 @@ using BelekCommunity.Api.Data;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using Microsoft.OpenApi.Models; // Swagger yetkilendirme modelleri için gerekli
+using Microsoft.OpenApi.Models; // Swagger yetkilendirme modelleri iÃ§in gerekli
 using System.Text;
+using System.Text.RegularExpressions;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Veritabaný Baðlantýsý
+// 1. VeritabanÄ± BaÄŸlantÄ±sÄ±
 builder.Services.AddDbContext<BelekCommunityDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"))
            .UseSnakeCaseNamingConvention());
 
-// 2. CORS Ayarý (React Baðlantýsý Ýçin Þart)
-// Tarayýcý güvenliðini aþmak ve React'in API'ye eriþmesine izin vermek için.
+// 2. CORS AyarÄ± (React BaÄŸlantÄ±sÄ± Ä°Ã§in Åžart)
+// TarayÄ±cÄ± gÃ¼venliÄŸini aÅŸmak ve React'in API'ye eriÅŸmesine izin vermek iÃ§in.
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReactApp",
         policy =>
         {
-            policy.WithOrigins("http://localhost:5173", "http://localhost:3000") // React genelde bu portlarda çalýþýr
+            policy.WithOrigins("http://localhost:5173", "http://localhost:3000") // React genelde bu portlarda Ã§alÄ±ÅŸÄ±r
                   .AllowAnyHeader()
                   .AllowAnyMethod();
         });
 });
 
-// 3. JWT Authentication Ayarlarý
+// 3. JWT Authentication AyarlarÄ±
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
-// Eðer appsettings.json'da key yoksa hata vermesin diye varsayýlan bir key (Geliþtirme için)
-var secretKeyString = jwtSettings["SecretKey"] ?? "VarsayilanGizliAnahtar";
+var jwtValidationErrors = ValidateJwtSettings(jwtSettings);
+
+if (jwtValidationErrors.Count > 0)
+{
+    throw new InvalidOperationException(
+        "JWT yapÄ±landÄ±rmasÄ± geÃ§ersiz. LÃ¼tfen appsettings veya environment deÄŸiÅŸkenlerini dÃ¼zeltin:\n"
+        + string.Join("\n", jwtValidationErrors.Select(error => $"- {error}")));
+}
+
+var secretKeyString = jwtSettings["SecretKey"]!;
+var issuer = jwtSettings["Issuer"]!;
+var audience = jwtSettings["Audience"]!;
 var secretKey = Encoding.UTF8.GetBytes(secretKeyString);
 
 builder.Services.AddAuthentication(options =>
@@ -44,8 +55,8 @@ builder.Services.AddAuthentication(options =>
         ValidateAudience = true,
         ValidateLifetime = true,
         ValidateIssuerSigningKey = true,
-        ValidIssuer = jwtSettings["Issuer"],
-        ValidAudience = jwtSettings["Audience"],
+        ValidIssuer = issuer,
+        ValidAudience = audience,
         IssuerSigningKey = new SymmetricSecurityKey(secretKey)
     };
 });
@@ -62,7 +73,7 @@ builder.Services.AddHttpClient<BelekCommunity.Api.Services.IAiChatService, Belek
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-// --- 5. SWAGGER GÜNCELLEMESÝ (JWT BEARER DESTEÐÝ) ---
+// --- 5. SWAGGER GÃœNCELLEMESÄ° (JWT BEARER DESTEÄžÄ°) ---
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "Belek Community API", Version = "v1" });
@@ -70,7 +81,7 @@ builder.Services.AddSwaggerGen(c =>
     // Swagger'a "Authorize" butonu ekliyoruz
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
-        Description = "JWT Token'ýnýzý girerken baþýna 'Bearer ' yazmayý unutmayýn. Örnek: Bearer eyJhbGci...",
+        Description = "JWT Token'Ä±nÄ±zÄ± girerken baÅŸÄ±na 'Bearer ' yazmayÄ± unutmayÄ±n. Ã–rnek: Bearer eyJhbGci...",
         Name = "Authorization",
         In = ParameterLocation.Header,
         Type = SecuritySchemeType.ApiKey,
@@ -96,7 +107,7 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
-// --- MIDDLEWARE (SIRALAMA ÇOK ÖNEMLÝDÝR) ---
+// --- MIDDLEWARE (SIRALAMA Ã‡OK Ã–NEMLÄ°DÄ°R) ---
 
 if (app.Environment.IsDevelopment())
 {
@@ -106,15 +117,66 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-// 1. Önce CORS (React'e kapýyý aç)
+// 1. Ã–nce CORS (React'e kapÄ±yÄ± aÃ§)
 app.UseCors("AllowReactApp");
 
-// 2. Sonra Kimlik Doðrulama (Kimsin?)
+// 2. Sonra Kimlik DoÄŸrulama (Kimsin?)
 app.UseAuthentication();
 
-// 3. Sonra Yetki Kontrolü (Yetkin var mý?)
+// 3. Sonra Yetki KontrolÃ¼ (Yetkin var mÄ±?)
 app.UseAuthorization();
 
 app.MapControllers();
 
 app.Run();
+
+static List<string> ValidateJwtSettings(IConfigurationSection jwtSettings)
+{
+    const int minimumSecretLengthInBytes = 32;
+    var errors = new List<string>();
+
+    var secretKey = jwtSettings["SecretKey"];
+    var issuer = jwtSettings["Issuer"];
+    var audience = jwtSettings["Audience"];
+    var durationInMinutesRaw = jwtSettings["DurationInMinutes"];
+
+    if (string.IsNullOrWhiteSpace(secretKey))
+    {
+        errors.Add("JwtSettings:SecretKey deÄŸeri zorunludur.");
+    }
+    else
+    {
+        var secretKeyBytes = Encoding.UTF8.GetByteCount(secretKey);
+        if (secretKeyBytes < minimumSecretLengthInBytes)
+        {
+            errors.Add($"JwtSettings:SecretKey en az {minimumSecretLengthInBytes} byte olmalÄ±dÄ±r.");
+        }
+
+        if (secretKey.Any(char.IsWhiteSpace))
+        {
+            errors.Add("JwtSettings:SecretKey boÅŸluk karakteri iÃ§ermemelidir.");
+        }
+
+        if (!Regex.IsMatch(secretKey, "^[A-Za-z0-9_\\-]+$"))
+        {
+            errors.Add("JwtSettings:SecretKey yalnÄ±zca harf, rakam, alt Ã§izgi (_) ve tire (-) iÃ§ermelidir.");
+        }
+    }
+
+    if (string.IsNullOrWhiteSpace(issuer))
+    {
+        errors.Add("JwtSettings:Issuer deÄŸeri zorunludur.");
+    }
+
+    if (string.IsNullOrWhiteSpace(audience))
+    {
+        errors.Add("JwtSettings:Audience deÄŸeri zorunludur.");
+    }
+
+    if (!int.TryParse(durationInMinutesRaw, out var durationInMinutes) || durationInMinutes <= 0)
+    {
+        errors.Add("JwtSettings:DurationInMinutes pozitif bir tam sayÄ± olmalÄ±dÄ±r.");
+    }
+
+    return errors;
+}
