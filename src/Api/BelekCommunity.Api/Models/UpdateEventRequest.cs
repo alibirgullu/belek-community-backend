@@ -1,12 +1,9 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 
 namespace BelekCommunity.Api.Models
 {
-    public class CreateEventRequest
+    public class UpdateEventRequest
     {
-        [Required]
-        public int CommunityId { get; set; } 
-
         [Required]
         public string Title { get; set; } = string.Empty;
 

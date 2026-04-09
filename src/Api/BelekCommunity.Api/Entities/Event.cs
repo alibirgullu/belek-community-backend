@@ -7,7 +7,7 @@ namespace BelekCommunity.Api.Entities
         public int Id { get; set; }
 
         public int CommunityId { get; set; }
-        public Community Community { get; set; } = null!; // İlişki
+        public Community Community { get; set; } = null!; 
 
         [Required]
         [MaxLength(200)]

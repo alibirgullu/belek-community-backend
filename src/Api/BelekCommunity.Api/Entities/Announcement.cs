@@ -9,7 +9,7 @@ namespace BelekCommunity.Api.Entities
         public int Id { get; set; }
 
         public int CommunityId { get; set; }
-        public Community Community { get; set; } = null!; // Navigation Property
+        public Community Community { get; set; } = null!; 
 
         [Required]
         [MaxLength(200)]
@@ -18,7 +18,7 @@ namespace BelekCommunity.Api.Entities
         [Required]
         public string Content { get; set; } = string.Empty;
 
-        // "MembersOnly", "Public" gibi değerler alabilir
+        
         [Required]
         [Column("target_audience")]
         public string TargetAudience { get; set; } = "Public";

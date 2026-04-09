@@ -27,9 +27,11 @@
     {
         public int EventId { get; set; }
         public string Title { get; set; } = string.Empty;
+        public string? Description { get; set; }
         public string CommunityName { get; set; } = string.Empty;
         public DateTime StartDate { get; set; }
         public string? Location { get; set; }
+        public string? PosterUrl { get; set; }
         public string Status { get; set; } = string.Empty; // "Going", "Maybe" vb.
     }
 }

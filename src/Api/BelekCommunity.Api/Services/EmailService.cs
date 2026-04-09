@@ -14,7 +14,7 @@ namespace BelekCommunity.Api.Services
 
         public void SendVerificationCode(string toEmail, string code)
         {
-            // 1. Ayarları appsettings.json dosyasından çekiyoruz
+            
             var smtpSettings = _configuration.GetSection("SmtpSettings");
 
             var host = smtpSettings["Host"] ?? "smtp.gmail.com";
@@ -22,20 +22,20 @@ namespace BelekCommunity.Api.Services
             var senderEmail = smtpSettings["SenderEmail"];
             var password = smtpSettings["Password"];
 
-            // Ayarlar eksikse hata fırlatmayalım, loglayalım veya varsayılan değer verelim
+            
             if (string.IsNullOrEmpty(senderEmail) || string.IsNullOrEmpty(password))
             {
                 throw new Exception("SMTP ayarları (SenderEmail veya Password) appsettings.json dosyasında eksik.");
             }
 
-            // 2. Mail Mesajını Oluşturuyoruz
+            
             var mailMessage = new MailMessage
             {
-                // DİKKAT: İkinci parametre ("Belek Üniversitesi...") alıcının göreceği isimdir.
+                
                 From = new MailAddress(senderEmail, "Belek Üniversitesi Topluluk Yönetimi"),
                 Subject = "Belek Üniversitesi - Kayıt Doğrulama Kodu",
 
-                // HTML Tasarımı
+                
                 Body = $@"
                     <div style='font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ddd; border-radius: 5px; max-width: 600px; margin: auto;'>
                         <h2 style='color: #004085; text-align: center;'>Belek Üniversitesi Topluluk Platformu</h2>
@@ -57,16 +57,16 @@ namespace BelekCommunity.Api.Services
                         </p>
                     </div>
                 ",
-                IsBodyHtml = true, // HTML formatında olduğunu belirtiyoruz
+                IsBodyHtml = true, 
             };
 
             mailMessage.To.Add(toEmail);
 
-            // 3. SMTP İstemcisi Ayarları ve Gönderim
+            
             using var smtpClient = new SmtpClient(host, port)
             {
                 Credentials = new NetworkCredential(senderEmail, password),
-                EnableSsl = true, // Gmail için SSL şarttır
+                EnableSsl = true, 
             };
 
             smtpClient.Send(mailMessage);

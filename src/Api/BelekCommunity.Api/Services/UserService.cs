@@ -142,6 +142,10 @@ namespace BelekCommunity.Api.Services
                 await _context.SaveChangesAsync();
             }
 
+            if (platformUser.Status == "Suspended" || platformUser.IsDeleted)
+                return (false, "Hesabınız sistem yöneticileri tarafından askıya alınmıştır veya silinmiştir.", null, null, null, null);
+
+
             var tokenHandler = new JwtSecurityTokenHandler();
             var key = Encoding.ASCII.GetBytes(_configuration["JwtSettings:SecretKey"]!);
 
@@ -182,7 +186,7 @@ namespace BelekCommunity.Api.Services
             var myCommunities = await _context.CommunityMembers
                 .Include(m => m.Community)
                 .Include(m => m.CommunityRole)
-                .Where(m => m.PlatformUserId == platformUserId && !m.IsDeleted && !m.Community.IsDeleted)
+                .Where(m => m.PlatformUserId == platformUserId && !m.IsDeleted && !m.Community.IsDeleted && m.Status == "Active")
                 .Select(m => new UserCommunityDto
                 {
                     CommunityId = m.CommunityId,
@@ -202,9 +206,11 @@ namespace BelekCommunity.Api.Services
                 {
                     EventId = ep.EventId,
                     Title = ep.Event.Title,
+                    Description = ep.Event.Description,
                     CommunityName = ep.Event.Community.Name,
                     StartDate = ep.Event.StartDate,
                     Location = ep.Event.Location,
+                    PosterUrl = ep.Event.PosterUrl,
                     Status = ep.Status
                 })
                 .ToListAsync();
@@ -241,7 +247,7 @@ namespace BelekCommunity.Api.Services
 
             platformUser.UpdatedAt = DateTime.UtcNow;
 
-            // YENİ MANTIK: Biyografi VEYA Bölüm verisinden herhangi biri geldiyse Detay tablosunu işle
+            
             if (request.Biography != null || request.Department != null)
             {
                 var userDetail = await _context.PlatformUserDetails
@@ -256,17 +262,17 @@ namespace BelekCommunity.Api.Services
                         IsDeleted = false
                     };
 
-                    // Hangisi doluysa onu ata
+                    
                     if (request.Biography != null) userDetail.Biography = request.Biography;
-                    if (request.Department != null) userDetail.Department = request.Department; // 1.b ŞIKKI BURADA EKLENDİ
+                    if (request.Department != null) userDetail.Department = request.Department; 
 
                     _context.PlatformUserDetails.Add(userDetail);
                 }
                 else
                 {
-                    // Hangisi doluysa onu güncelle
+                    
                     if (request.Biography != null) userDetail.Biography = request.Biography;
-                    if (request.Department != null) userDetail.Department = request.Department; // 1.b ŞIKKI BURADA EKLENDİ
+                    if (request.Department != null) userDetail.Department = request.Department; 
 
                     userDetail.UpdatedAt = DateTime.UtcNow;
                 }
@@ -277,7 +283,7 @@ namespace BelekCommunity.Api.Services
             return (true, "Profiliniz başarıyla güncellendi.");
         }
 
-        // --- YENİ ŞİFRE SIFIRLAMA METOTLARI (DBA UYUMLU, SADECE INSERT YAPAN) ---
+        
         public async Task<(bool IsSuccess, string Message)> ForgotPasswordAsync(string email)
         {
             var mainUser = await _context.MainUsers.FirstOrDefaultAsync(u => u.Email == email);
@@ -288,8 +294,7 @@ namespace BelekCommunity.Api.Services
 
             var resetCode = Random.Shared.Next(100000, 999999).ToString();
 
-            // DBA'in izni olmadığı için ana tabloyu güncellemek (UPDATE) yerine, 
-            // sadece yeni tabloya kayıt atıyoruz (INSERT).
+            
             var resetToken = new PasswordResetToken
             {
                 PlatformUserId = platformUser.Id,
@@ -325,14 +330,37 @@ namespace BelekCommunity.Api.Services
 
             var hashedPassword = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
 
-            // DİKKAT: UPDATE işlemi DBA kısıtlamasına takıldığı için, şifre güncellemeyi
-            // veritabanındaki özel fonksiyon ile (Stored Procedure/Function) yapıyoruz.
+            
             await _context.Database.ExecuteSqlRawAsync(
                 "SELECT public.reset_user_password({0}, {1}, {2})",
                 request.Email, hashedPassword, activeToken.Id
             );
 
             return (true, "Şifreniz başarıyla güncellendi. Yeni şifrenizle giriş yapabilirsiniz.");
+        }
+
+        public async Task<(bool IsSuccess, string Message)> UpdateUserStatusAsync(int platformUserId, string newStatus)
+        {
+            var platformUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == platformUserId);
+            if (platformUser == null) return (false, "Kullanıcı bulunamadı.");
+
+            var mainUser = await _context.MainUsers.FirstOrDefaultAsync(m => m.Id == platformUser.ExternalUserId);
+            if (mainUser == null) return (false, "Ana kullanıcı kaydı bulunamadı.");
+
+            platformUser.Status = newStatus;
+            
+            if (newStatus == "Suspended") {
+                mainUser.IsActive = false;
+            } else if (newStatus == "Active") {
+                
+                mainUser.IsActive = true;
+            }
+
+            platformUser.UpdatedAt = DateTime.UtcNow;
+            mainUser.UpdateDate = DateTime.UtcNow;
+            
+            await _context.SaveChangesAsync();
+            return (true, $"Kullanıcı durumu başarıyla '{newStatus}' olarak güncellendi.");
         }
     }
 }

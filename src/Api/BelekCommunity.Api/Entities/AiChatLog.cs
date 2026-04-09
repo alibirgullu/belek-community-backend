@@ -19,7 +19,7 @@ namespace BelekCommunity.Api.Entities
         public string BotResponse { get; set; } = string.Empty;
 
         [Column("intent")]
-        public string? Intent { get; set; } // Örn: "etkinlik_sorma", "topluluk_arama"
+        public string? Intent { get; set; } 
 
         [Column("created_at")]
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

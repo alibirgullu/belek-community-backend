@@ -27,34 +27,32 @@ namespace BelekCommunity.Api.Services
 
             var url = $"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={apiKey}";
 
-            // --- YENİ: VERİTABANINDAN DETAYLI VE CANLI VERİ ÇEKME ---
+            
 
-            // 1. Öğrencinin adını bulalım
+            
             var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == currentUserId);
             var studentName = currentUser != null ? currentUser.FirstName : "Öğrenci";
 
-            // 2. Sistemdeki aktif toplulukların sadece isimlerini yan yana virgülle dizelim
+            
             var communities = await _context.Communities
                 .Where(c => !c.IsDeleted)
                 .Select(c => c.Name)
                 .ToListAsync();
             var communityListString = communities.Any() ? string.Join(", ", communities) : "Şu an kayıtlı topluluk yok.";
 
-            // 3. Yaklaşan ilk 10 etkinliği (Tarih, Yer, Hangi Topluluk) detaylıca çekelim
+            
             var upcomingEvents = await _context.Events
                 .Include(e => e.Community)
                 .Where(e => !e.IsDeleted && !e.IsCancelled && e.StartDate >= DateTime.UtcNow)
                 .OrderBy(e => e.StartDate)
-                .Take(10) // Token patlamaması için sınır koyuyoruz
+                .Take(10) 
                 .Select(e => $"- {e.Title} ({e.Community.Name} tarafından, Tarih: {e.StartDate.ToString("dd.MM.yyyy HH:mm")}, Yer: {e.Location ?? "Belirtilmedi"})")
                 .ToListAsync();
 
             var eventsString = upcomingEvents.Any()
                 ? string.Join("\n", upcomingEvents)
                 : "Şu an planlanmış yaklaşan bir etkinlik bulunmuyor.";
-            // -----------------------------------------------------------
-
-            // System Instruction'ı devasa bir bilgi havuzuna çevirdik
+            
             var systemInstruction = $@"Sen Belek Üniversitesi Öğrenci Toplulukları platformunun resmi yapay zeka asistanısın. Adın 'Belek AI'. 
             Sadece üniversitedeki topluluklar, etkinlikler, üyelik süreçleri ve kampüs yaşamı hakkında bilgi verirsin. Öğrencilerle senli benli, dostane, enerjik ve kısa/öz bir dille konuş.
             

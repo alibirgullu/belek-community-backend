@@ -1,4 +1,4 @@
-﻿using BelekCommunity.Api.Data;
+using BelekCommunity.Api.Data;
 using BelekCommunity.Api.Entities;
 using BelekCommunity.Api.Models;
 using Microsoft.EntityFrameworkCore;
@@ -9,11 +9,13 @@ namespace BelekCommunity.Api.Services
     {
         private readonly BelekCommunityDbContext _context;
         private readonly EmailService _emailService;
+        private readonly IPushNotificationService _pushService;
 
-        public EventService(BelekCommunityDbContext context, EmailService emailService)
+        public EventService(BelekCommunityDbContext context, EmailService emailService, IPushNotificationService pushService)
         {
             _context = context;
             _emailService = emailService;
+            _pushService = pushService;
         }
 
         public async Task<IEnumerable<Event>> GetAllEventsAsync()
@@ -59,9 +61,21 @@ namespace BelekCommunity.Api.Services
             _context.Events.Add(newEvent);
             await _context.SaveChangesAsync();
 
-            // 4. Bildirim Fırlatma
+            // 4. Etkinliği oluşturan kişiyi (Admin/Creator) otomatik olarak katılımcı yap
+            var creatorParticipant = new EventParticipant
+            {
+                EventId = newEvent.Id,
+                PlatformUserId = currentUserId,
+                Status = "Going",
+                CreatedAt = DateTime.UtcNow,
+                IsDeleted = false
+            };
+            _context.EventParticipants.Add(creatorParticipant);
+            await _context.SaveChangesAsync();
+
+            // 5. Bildirim Fırlatma (Kendisi dahil tüm üyelere)
             var memberIds = await _context.CommunityMembers
-                .Where(m => m.CommunityId == request.CommunityId && !m.IsDeleted && m.PlatformUserId != currentUserId)
+                .Where(m => m.CommunityId == request.CommunityId && !m.IsDeleted)
                 .Select(m => m.PlatformUserId)
                 .ToListAsync();
 
@@ -80,6 +94,9 @@ namespace BelekCommunity.Api.Services
 
                 _context.Notifications.AddRange(notifications);
                 await _context.SaveChangesAsync();
+                
+                // Gerçek OS-Level Push Gönderimi
+                await _pushService.SendPushNotificationToUsersAsync(memberIds, "Yeni Etkinlik!", $"{community.Name} yeni bir etkinlik oluşturdu: {request.Title}");
             }
 
             return (true, "Etkinlik başarıyla oluşturuldu ve üyelere bildirim gönderildi.", newEvent.Id);
@@ -125,7 +142,46 @@ namespace BelekCommunity.Api.Services
             return (true, "Etkinliğe başarıyla katıldınız.");
         }
 
-        // --- YENİ EKLENEN ETKİNLİK İPTAL VE MAİL METODU ---
+        public async Task<(bool IsSuccess, string Message)> UpdateEventAsync(int currentUserId, int eventId, UpdateEventRequest request)
+        {
+            // 1. Etkinliği bul
+            var targetEvent = await _context.Events
+                .Include(e => e.Community)
+                .FirstOrDefaultAsync(e => e.Id == eventId && !e.IsDeleted);
+
+            if (targetEvent == null)
+                return (false, "Etkinlik bulunamadı.");
+
+            if (targetEvent.IsCancelled)
+                return (false, "Bu etkinlik iptal edildiği için güncellenemez.");
+
+            // 2. Yetki Kontrolü
+            var member = await _context.CommunityMembers
+                .Include(m => m.CommunityRole)
+                .FirstOrDefaultAsync(m => m.CommunityId == targetEvent.CommunityId && m.PlatformUserId == currentUserId && !m.IsDeleted);
+
+            if (member == null || !member.CommunityRole.CanCreateEvent)
+            {
+                return (false, "Bu etkinliği düzenleme yetkiniz bulunmamaktadır.");
+            }
+
+            // 3. Etkinliği Güncelle
+            targetEvent.Title = request.Title;
+            targetEvent.Description = request.Description;
+            targetEvent.StartDate = request.StartDate;
+            targetEvent.EndDate = request.EndDate;
+            targetEvent.Location = request.Location;
+            
+            if (!string.IsNullOrEmpty(request.PosterUrl))
+            {
+                targetEvent.PosterUrl = request.PosterUrl;
+            }
+
+            await _context.SaveChangesAsync();
+            return (true, "Etkinlik başarıyla güncellendi.");
+        }
+
+        
 
         public async Task<(bool IsSuccess, string Message)> CancelEventAsync(int currentUserId, int eventId)
         {
@@ -175,7 +231,7 @@ namespace BelekCommunity.Api.Services
                         CreatedAt = DateTime.UtcNow
                     });
 
-                    // E-posta gönderimi (Ana kullanıcıyı bularak mail atıyoruz)
+                    // E-posta gönderimi 
                     try
                     {
                         var mainUser = await _context.MainUsers.FirstOrDefaultAsync(u => u.Id == participant.PlatformUser.ExternalUserId);

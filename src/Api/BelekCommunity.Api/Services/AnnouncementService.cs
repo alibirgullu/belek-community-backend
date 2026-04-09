@@ -66,14 +66,14 @@ namespace BelekCommunity.Api.Services
             if (request.TargetAudience == "Public")
             {
                 targetUserIds = await _context.Users
-                    .Where(u => u.Status == "Active" && !u.IsDeleted && u.Id != currentUserId)
+                    .Where(u => u.Status == "Active" && !u.IsDeleted)
                     .Select(u => u.Id)
                     .ToListAsync();
             }
             else
             {
                 targetUserIds = await _context.CommunityMembers
-                    .Where(m => m.CommunityId == communityId && !m.IsDeleted && m.PlatformUserId != currentUserId)
+                    .Where(m => m.CommunityId == communityId && !m.IsDeleted)
                     .Select(m => m.PlatformUserId)
                     .ToListAsync();
             }

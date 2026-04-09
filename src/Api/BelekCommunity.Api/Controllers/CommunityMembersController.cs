@@ -44,7 +44,7 @@ namespace BelekCommunity.Api.Controllers
             return Ok(new { Message = result.Message });
         }
 
-        // --- YENİ: BEKLEYENLERİ GETİR (Sadece Yöneticiler) ---
+        // ---  BEKLEYENLERİ GETİR (Sadece Yöneticiler) ---
         [HttpGet("pending")]
         public async Task<IActionResult> GetPendingMembers(int communityId)
         {
@@ -55,7 +55,7 @@ namespace BelekCommunity.Api.Controllers
             return Ok(result.Data);
         }
 
-        // --- YENİ: ÜYEYİ ONAYLA ---
+        // ---  ÜYEYİ ONAYLA ---
         [HttpPut("{platformUserId}/approve")]
         public async Task<IActionResult> ApproveMember(int communityId, int platformUserId)
         {
@@ -66,12 +66,22 @@ namespace BelekCommunity.Api.Controllers
             return Ok(new { Message = result.Message });
         }
 
-        // --- YENİ: ÜYEYİ REDDET ---
+        // ---  ÜYEYİ REDDET ---
         [HttpPut("{platformUserId}/reject")]
         public async Task<IActionResult> RejectMember(int communityId, int platformUserId)
         {
             int currentUserId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
             var result = await _memberService.RespondToMembershipRequestAsync(currentUserId, communityId, platformUserId, false);
+
+            if (!result.IsSuccess) return BadRequest(new { Message = result.Message });
+            return Ok(new { Message = result.Message });
+        }
+        // ---  ÜYE ROLÜNÜ GÜNCELLE (Sadece Yöneticiler) ---
+        [HttpPut("{platformUserId}/role/{newRoleName}")]
+        public async Task<IActionResult> ChangeMemberRole(int communityId, int platformUserId, string newRoleName)
+        {
+            int currentUserId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            var result = await _memberService.ChangeMemberRoleAsync(currentUserId, communityId, platformUserId, newRoleName);
 
             if (!result.IsSuccess) return BadRequest(new { Message = result.Message });
             return Ok(new { Message = result.Message });

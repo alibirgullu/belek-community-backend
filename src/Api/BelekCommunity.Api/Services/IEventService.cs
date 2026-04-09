@@ -7,10 +7,11 @@ namespace BelekCommunity.Api.Services
     {
         Task<IEnumerable<Event>> GetAllEventsAsync();
 
-        // Geriye işlemin başarılı olup olmadığını, mesajı ve varsa oluşturulan Event Id'sini dönecek
+        
         Task<(bool IsSuccess, string Message, int? EventId)> CreateEventAsync(int currentUserId, CreateEventRequest request);
 
         Task<(bool IsSuccess, string Message)> ToggleEventParticipationAsync(int currentUserId, int eventId);
+        Task<(bool IsSuccess, string Message)> UpdateEventAsync(int currentUserId, int eventId, UpdateEventRequest request);
         Task<(bool IsSuccess, string Message)> CancelEventAsync(int currentUserId, int eventId);
     }
 }

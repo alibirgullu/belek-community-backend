@@ -17,10 +17,10 @@ namespace BelekCommunity.Api.Entities
         public User PlatformUser { get; set; } = null!;
 
         [Column("status")]
-        public string Status { get; set; } = "Going"; // Going, Maybe, Cancelled vb.
+        public string Status { get; set; } = "Going"; 
 
         [Column("checked_in")]
-        public bool CheckedIn { get; set; } = false; // Etkinliğe fiziksel olarak geldi mi? (Karekod için çok işine yarayacak)
+        public bool CheckedIn { get; set; } = false; 
 
         [Column("created_at")]
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

@@ -17,7 +17,7 @@ namespace BelekCommunity.Api.Entities
         public User PlatformUser { get; set; } = null!;
 
         [Column("rating")]
-        public int Rating { get; set; } // 1-5 arası yıldız puanı
+        public int Rating { get; set; } 
 
         [Column("comment")]
         public string? Comment { get; set; }

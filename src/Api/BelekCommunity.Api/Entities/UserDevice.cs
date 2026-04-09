@@ -13,10 +13,10 @@ namespace BelekCommunity.Api.Entities
         public User PlatformUser { get; set; } = null!;
 
         [Column("device_token")]
-        public string DeviceToken { get; set; } = string.Empty; // Firebase/OneSignal Token'ı
+        public string DeviceToken { get; set; } = string.Empty; 
 
         [Column("device_type")]
-        public string? DeviceType { get; set; } // iOS, Android, Web
+        public string? DeviceType { get; set; } 
 
         [Column("device_name")]
         public string? DeviceName { get; set; }

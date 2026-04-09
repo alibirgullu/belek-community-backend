@@ -7,7 +7,7 @@
         public string Description { get; set; } = string.Empty;
         public string? LogoUrl { get; set; }
         public string? CoverImageUrl { get; set; }
-        public int MemberCount { get; set; } // Toplam üye sayısı
+        public int MemberCount { get; set; } 
 
         public List<CommunityMemberDto> BoardMembers { get; set; } = new();
         public List<CommunityEventDto> UpcomingEvents { get; set; } = new();

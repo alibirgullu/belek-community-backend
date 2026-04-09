@@ -36,7 +36,7 @@ namespace BelekCommunity.Api.Services
                 })
                 .ToListAsync();
 
-            // 3. Yaklaşan En Yakın 5 Etkinliği Çek (Geçmiş olanları göstermiyoruz)
+            // 3. Yaklaşan En Yakın 5 Etkinliği Çek 
             var upcomingEvents = await _context.Events
                 .Where(e => e.CommunityId == communityId && !e.IsDeleted && !e.IsCancelled && e.StartDate >= DateTime.UtcNow)
                 .OrderBy(e => e.StartDate)
@@ -82,6 +82,45 @@ namespace BelekCommunity.Api.Services
                 UpcomingEvents = upcomingEvents,
                 RecentAnnouncements = recentAnnouncements
             };
+        }
+
+        public async Task<(bool IsSuccess, string Message)> UpdateCommunityAsync(int currentUserId, IList<string> currentRoles, int communityId, UpdateCommunityRequest request)
+        {
+            // 1. Yetki Kontrolü: Bu kişi bu topluluğun lideri mi? (CanEditCommunity vb.)
+            var member = await _context.CommunityMembers
+                .Include(m => m.CommunityRole)
+                .FirstOrDefaultAsync(m => m.CommunityId == communityId && m.PlatformUserId == currentUserId && !m.IsDeleted);
+
+            
+            bool isSuperAdmin = currentRoles.Contains("SuperAdmin");
+
+            
+            if (!isSuperAdmin && (member == null || member.CommunityRole.Name != "Admin"))
+            {
+                return (false, "Bu topluluğun bilgilerini güncelleme yetkiniz bulunmamaktadır.");
+            }
+
+            try
+            {
+                
+                await _context.Database.ExecuteSqlRawAsync(
+                    "CALL belek_student_community.sp_update_community({0}, {1}, {2}, {3}, {4}, {5}, {6})",
+                    communityId,
+                    request.CategoryId,
+                    request.Name,
+                    request.Description,
+                    request.LogoUrl ?? "",
+                    request.CoverImageUrl ?? "",
+                    request.Status
+                );
+
+                return (true, "Topluluk bilgileri başarıyla güncellendi.");
+            }
+            catch (Exception ex)
+            {
+                
+                return (false, $"Güncelleme sırasında bir hata oluştu: {ex.Message}");
+            }
         }
     }
 }

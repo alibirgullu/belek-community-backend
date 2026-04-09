@@ -44,11 +44,11 @@ namespace BelekCommunity.Api.Data
             modelBuilder.Entity<CommunityRole>().ToTable("community_roles");
             modelBuilder.Entity<Notification>().ToTable("notifications");
 
-            // --- YENİ TABLO EŞLEŞTİRMELERİ ---
+            
             modelBuilder.Entity<CommunityCategory>().ToTable("community_categories");
             modelBuilder.Entity<EventParticipant>().ToTable("event_participants");
             modelBuilder.Entity<EventFeedback>().ToTable("event_feedbacks");
-            modelBuilder.Entity<PlatformUserDetail>().ToTable("platform_user_details"); // Şemadaki isme göre
+            modelBuilder.Entity<PlatformUserDetail>().ToTable("platform_user_details"); 
             modelBuilder.Entity<UserDevice>().ToTable("user_devices");
             modelBuilder.Entity<UserRefreshToken>().ToTable("user_refresh_tokens");
             modelBuilder.Entity<SystemLog>().ToTable("system_logs");

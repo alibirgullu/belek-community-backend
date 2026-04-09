@@ -9,7 +9,7 @@ namespace BelekCommunity.Api.Entities
         public int Id { get; set; }
 
         [Column("username")]
-        public string? Username { get; set; } // Resimde var
+        public string? Username { get; set; } 
 
         [Column("email")]
         public string Email { get; set; } = string.Empty;
@@ -35,7 +35,7 @@ namespace BelekCommunity.Api.Entities
         [Column("phone")]
         public string? Phone { get; set; }
 
-        // --- DOĞRULAMA İÇİN KULLANACAĞIMIZ MEVCUT KOLONLAR ---
+        
 
         [Column("is_email_verified")]
         public bool IsEmailVerified { get; set; }
@@ -43,15 +43,15 @@ namespace BelekCommunity.Api.Entities
         [Column("email_verified_at")]
         public DateTime? EmailVerifiedAt { get; set; }
 
-        // HİLE BURADA: Onay kodunu bu kolona yazacağız!
+        
         [Column("password_reset_token")]
         public string? PasswordResetToken { get; set; }
 
-        // Kodun süresi
+        
         [Column("password_reset_expires")]
         public DateTime? PasswordResetExpires { get; set; }
 
-        [Column("create_date")] // Resimde create_date yazıyor
+        [Column("create_date")] 
         public DateTime CreateDate { get; set; } = DateTime.UtcNow;
 
         [Column("update_date")]

@@ -9,7 +9,7 @@ namespace BelekCommunity.Api.Entities
         public int Id { get; set; }
 
         [Column("platform_user_id")]
-        public int? PlatformUserId { get; set; } // Sistem hatasıysa null olabilir
+        public int? PlatformUserId { get; set; } 
 
         [Column("action")]
         public string Action { get; set; } = string.Empty;

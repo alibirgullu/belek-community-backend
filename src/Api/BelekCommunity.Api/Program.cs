@@ -2,32 +2,31 @@ using BelekCommunity.Api.Data;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using Microsoft.OpenApi.Models; // Swagger yetkilendirme modelleri için gerekli
+using Microsoft.OpenApi.Models; 
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Veritabaný Baðlantýsý
+
 builder.Services.AddDbContext<BelekCommunityDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"))
            .UseSnakeCaseNamingConvention());
 
-// 2. CORS Ayarý (React Baðlantýsý Ýçin Þart)
-// Tarayýcý güvenliðini aþmak ve React'in API'ye eriþmesine izin vermek için.
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReactApp",
         policy =>
         {
-            policy.WithOrigins("http://localhost:5173", "http://localhost:3000") // React genelde bu portlarda çalýþýr
+            policy.WithOrigins("http://localhost:5173", "http://localhost:3000") 
                   .AllowAnyHeader()
                   .AllowAnyMethod();
         });
 });
 
-// 3. JWT Authentication Ayarlarý
+
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
-// Eðer appsettings.json'da key yoksa hata vermesin diye varsayýlan bir key (Geliþtirme için)
+
 var secretKeyString = jwtSettings["SecretKey"] ?? "VarsayilanGizliAnahtar";
 var secretKey = Encoding.UTF8.GetBytes(secretKeyString);
 
@@ -50,7 +49,7 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
-// 4. Standart Servisler
+
 builder.Services.AddScoped<BelekCommunity.Api.Services.EmailService>();
 builder.Services.AddScoped<BelekCommunity.Api.Services.IEventService, BelekCommunity.Api.Services.EventService>();
 builder.Services.AddScoped<BelekCommunity.Api.Services.IAnnouncementService, BelekCommunity.Api.Services.AnnouncementService>();
@@ -59,18 +58,19 @@ builder.Services.AddScoped<BelekCommunity.Api.Services.IFileService, BelekCommun
 builder.Services.AddScoped<BelekCommunity.Api.Services.ICommunityService, BelekCommunity.Api.Services.CommunityService>();
 builder.Services.AddScoped<BelekCommunity.Api.Services.ICommunityMemberService, BelekCommunity.Api.Services.CommunityMemberService>();
 builder.Services.AddHttpClient<BelekCommunity.Api.Services.IAiChatService, BelekCommunity.Api.Services.AiChatService>();
-builder.Services.AddControllers();
+builder.Services.AddHttpClient<BelekCommunity.Api.Services.IPushNotificationService, BelekCommunity.Api.Services.PushNotificationService>();
+builder.Services.AddControllers().AddJsonOptions(options => { options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles; });
 builder.Services.AddEndpointsApiExplorer();
 
-// --- 5. SWAGGER GÜNCELLEMESÝ (JWT BEARER DESTEÐÝ) ---
+
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo { Title = "Belek Community API", Version = "v1" });
 
-    // Swagger'a "Authorize" butonu ekliyoruz
+    
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
-        Description = "JWT Token'ýnýzý girerken baþýna 'Bearer ' yazmayý unutmayýn. Örnek: Bearer eyJhbGci...",
+        Description = "JWT Token'Ä±nÄ±zÄ± girerken baÅŸÄ±na 'Bearer ' yazmayÄ± unutmayÄ±n. Ã–rnek: Bearer eyJhbGci...",
         Name = "Authorization",
         In = ParameterLocation.Header,
         Type = SecuritySchemeType.ApiKey,
@@ -92,11 +92,11 @@ builder.Services.AddSwaggerGen(c =>
         }
     });
 });
-// ----------------------------------------------------
+
 
 var app = builder.Build();
 
-// --- MIDDLEWARE (SIRALAMA ÇOK ÖNEMLÝDÝR) ---
+
 
 if (app.Environment.IsDevelopment())
 {
@@ -106,13 +106,13 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-// 1. Önce CORS (React'e kapýyý aç)
+
 app.UseCors("AllowReactApp");
 
-// 2. Sonra Kimlik Doðrulama (Kimsin?)
+
 app.UseAuthentication();
 
-// 3. Sonra Yetki Kontrolü (Yetkin var mý?)
+
 app.UseAuthorization();
 
 app.MapControllers();

@@ -10,7 +10,7 @@ namespace BelekCommunity.Api.Entities
 
         [Column("platform_user_id")]
         public int PlatformUserId { get; set; }
-        public User PlatformUser { get; set; } = null!; // İlişki
+        public User PlatformUser { get; set; } = null!; 
 
         [Required]
         public string Title { get; set; } = string.Empty;
@@ -21,7 +21,7 @@ namespace BelekCommunity.Api.Entities
         [Column("is_read")]
         public bool IsRead { get; set; } = false;
 
-        // Bildirimin türü (Örn: "Event", "System", "CommunityAnnouncement")
+        
         public string? Type { get; set; }
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

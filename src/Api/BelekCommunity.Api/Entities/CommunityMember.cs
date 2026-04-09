@@ -17,7 +17,7 @@ namespace BelekCommunity.Api.Entities
         public int PlatformUserId { get; set; }
         public User PlatformUser { get; set; } = null!;
 
-        // YENİ: Rol İlişkisi (Senin tablodan gelen)
+        
         [Column("community_role_id")]
         public int CommunityRoleId { get; set; }
         public CommunityRole CommunityRole { get; set; } = null!;
