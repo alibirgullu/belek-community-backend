@@ -45,8 +45,62 @@ namespace BelekCommunity.Api.Services
             if (uploadResult.Error != null)
                 throw new Exception(uploadResult.Error.Message);
 
-            
+
             return uploadResult.SecureUrl.AbsoluteUri;
+        }
+
+        public async Task<CloudinaryListResult> ListAsync(string? folder, int maxResults, string? nextCursor)
+        {
+            var prefix = string.IsNullOrWhiteSpace(folder)
+                ? "BelekCommunity/"
+                : $"BelekCommunity/{folder.Trim('/')}/";
+
+            var listParams = new ListResourcesByPrefixParams
+            {
+                Type = "upload",
+                Prefix = prefix,
+                MaxResults = Math.Clamp(maxResults, 1, 100),
+                NextCursor = nextCursor,
+            };
+
+            var result = await _cloudinary.ListResourcesAsync(listParams);
+
+            var items = (result.Resources ?? Array.Empty<Resource>())
+                .Select(r =>
+                {
+                    DateTime createdAt = DateTime.UtcNow;
+                    var createdStr = r.CreatedAt;
+                    if (!string.IsNullOrEmpty(createdStr) && DateTime.TryParse(createdStr, out var parsed))
+                        createdAt = parsed;
+
+                    var url = r.SecureUrl?.ToString() ?? r.Url?.ToString() ?? string.Empty;
+                    string? folderOfItem = null;
+                    var slashIdx = r.PublicId?.LastIndexOf('/') ?? -1;
+                    if (slashIdx > 0) folderOfItem = r.PublicId!.Substring(0, slashIdx);
+
+                    return new CloudinaryFileItem
+                    {
+                        PublicId = r.PublicId,
+                        Url = url,
+                        Format = r.Format ?? string.Empty,
+                        Bytes = r.Bytes,
+                        Width = r.Width,
+                        Height = r.Height,
+                        Folder = folderOfItem,
+                        CreatedAt = createdAt
+                    };
+                })
+                .ToList();
+
+            return new CloudinaryListResult { Items = items, NextCursor = result.NextCursor };
+        }
+
+        public async Task<bool> DeleteAsync(string publicId)
+        {
+            if (string.IsNullOrWhiteSpace(publicId)) return false;
+            var deleteParams = new DeletionParams(publicId) { ResourceType = ResourceType.Image };
+            var result = await _cloudinary.DestroyAsync(deleteParams);
+            return result.Result == "ok" || result.Result == "not found";
         }
     }
 }

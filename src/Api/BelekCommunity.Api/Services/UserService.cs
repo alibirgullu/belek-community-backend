@@ -1,10 +1,11 @@
-﻿using BelekCommunity.Api.Data;
+using BelekCommunity.Api.Data;
 using BelekCommunity.Api.Entities;
 using BelekCommunity.Api.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace BelekCommunity.Api.Services
@@ -49,33 +50,13 @@ namespace BelekCommunity.Api.Services
             }
 
             var code = Random.Shared.Next(100000, 999999).ToString();
-            int nextId = 1;
-            if (await _context.MainUsers.AnyAsync())
-            {
-                nextId = await _context.MainUsers.MaxAsync(u => u.Id) + 1;
-            }
-
             var hashedPassword = BCrypt.Net.BCrypt.HashPassword(request.Password);
 
-            var newMainUser = new MainUser
-            {
-                Id = nextId,
-                Username = request.Email,
-                Email = request.Email,
-                PasswordHash = hashedPassword,
-                FirstName = request.FirstName,
-                LastName = request.LastName,
-                UserType = request.UserType,
-                IsActive = false,
-                IsEmailVerified = false,
-                PasswordResetToken = code,
-                PasswordResetExpires = DateTime.UtcNow.AddMinutes(3),
-                CreateDate = DateTime.UtcNow,
-                UpdateDate = DateTime.UtcNow
-            };
-
-            _context.MainUsers.Add(newMainUser);
-            await _context.SaveChangesAsync();
+            // RLS'i aşmak için veritabanında oluşturulan SECURITY DEFINER fonksiyonunu kullanıyoruz.
+            await _context.Database.ExecuteSqlRawAsync(
+                "SELECT public.register_new_user({0}, {1}, {2}, {3}, {4}, {5}, {6}::timestamp)",
+                request.Email, request.FirstName, request.LastName, request.UserType, hashedPassword, code, DateTime.UtcNow.AddMinutes(3)
+            );
 
             try { _emailService.SendVerificationCode(request.Email, code); }
             catch (Exception ex) { Console.WriteLine("Mail hatası: " + ex.Message); }
@@ -85,11 +66,14 @@ namespace BelekCommunity.Api.Services
 
         public async Task<(bool IsSuccess, string Message)> VerifyEmailAsync(VerifyEmailRequest request)
         {
-            var user = await _context.MainUsers.AsNoTracking().FirstOrDefaultAsync(u => u.Email == request.Email);
+            var user = await _context.MainUsers
+                .Include(u => u.UserAuth)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Email == request.Email);
 
-            if (user == null) return (false, "Kullanıcı bulunamadı.");
-            if (user.PasswordResetToken != request.Code) return (false, "Girdiğiniz kod hatalı.");
-            if (user.PasswordResetExpires < DateTime.UtcNow) return (false, "Kodun süresi dolmuş. Lütfen tekrar kayıt olun.");
+            if (user == null || user.UserAuth == null) return (false, "Kullanıcı bulunamadı.");
+            if (user.UserAuth.PasswordResetToken != request.Code) return (false, "Girdiğiniz kod hatalı.");
+            if (user.UserAuth.PasswordResetExpires < DateTime.UtcNow) return (false, "Kodun süresi dolmuş. Lütfen tekrar kayıt olun.");
 
             await _context.Database.ExecuteSqlRawAsync(
                 "SELECT public.verify_user_account({0})",
@@ -116,12 +100,20 @@ namespace BelekCommunity.Api.Services
             return (true, "E-posta başarıyla doğrulandı. Artık giriş yapabilirsiniz.");
         }
 
-        public async Task<(bool IsSuccess, string Message, string? Token, int? UserId, string? FullName, string? ProfileImage)> LoginAsync(CreateUserRequest request)
+        public async Task<(bool IsSuccess, string Message, AuthTokenResponse? Tokens, int? UserId, string? FullName, string? ProfileImage)> LoginAsync(CreateUserRequest request)
         {
-            var mainUser = await _context.MainUsers.FirstOrDefaultAsync(u => u.Email == request.Email);
+            var mainUser = await _context.MainUsers
+                .Include(u => u.UserAuth)
+                .FirstOrDefaultAsync(u => u.Email == request.Email);
 
-            if (mainUser == null || !BCrypt.Net.BCrypt.Verify(request.Password, mainUser.PasswordHash))
-                return (false, "E-posta veya şifre hatalı.", null, null, null, null);
+            if (mainUser == null)
+                return (false, "E-posta adresi sistemde bulunamadı.", null, null, null, null);
+
+            if (mainUser.UserAuth == null)
+                return (false, "Kullanıcının yetkilendirme (UserAuth) kaydı bulunamadı. Veri tabanı taşıması eksik olabilir.", null, null, null, null);
+
+            if (!BCrypt.Net.BCrypt.Verify(request.Password, mainUser.UserAuth.PasswordHash))
+                return (false, "Girdiğiniz şifre hatalı.", null, null, null, null);
 
             if (!mainUser.IsEmailVerified)
                 return (false, "Giriş yapmadan önce lütfen e-posta adresinizi doğrulayın.", null, null, null, null);
@@ -145,6 +137,100 @@ namespace BelekCommunity.Api.Services
             if (platformUser.Status == "Suspended" || platformUser.IsDeleted)
                 return (false, "Hesabınız sistem yöneticileri tarafından askıya alınmıştır veya silinmiştir.", null, null, null, null);
 
+            var tokens = await IssueTokenPairAsync(platformUser, mainUser);
+
+            return (true, "Giriş başarılı", tokens, platformUser.Id, $"{platformUser.FirstName} {platformUser.LastName}", platformUser.ProfileImageUrl);
+        }
+
+        public async Task<(bool IsSuccess, string Message, AuthTokenResponse? Tokens)> RefreshTokenAsync(string refreshToken)
+        {
+            if (string.IsNullOrWhiteSpace(refreshToken))
+                return (false, "Yenileme anahtarı boş olamaz.", null);
+
+            var stored = await _context.UserRefreshTokens
+                .FirstOrDefaultAsync(t => t.Token == refreshToken);
+
+            if (stored == null)
+                return (false, "Geçersiz yenileme anahtarı.", null);
+
+            // Replay tespiti: bu token daha önce iptal edilmişse, muhtemelen çalındı —
+            // aynı kullanıcının tüm aktif yenileme anahtarlarını da iptal et.
+            if (!stored.IsActive || stored.RevokedAt != null)
+            {
+                var allUserTokens = await _context.UserRefreshTokens
+                    .Where(t => t.PlatformUserId == stored.PlatformUserId && t.IsActive)
+                    .ToListAsync();
+
+                foreach (var t in allUserTokens)
+                {
+                    t.IsActive = false;
+                    t.RevokedAt = DateTime.UtcNow;
+                }
+                await _context.SaveChangesAsync();
+                return (false, "Yenileme anahtarı yeniden kullanılmış. Tüm oturumlar güvenlik gereği sonlandırıldı.", null);
+            }
+
+            if (stored.ExpiresAt < DateTime.UtcNow)
+            {
+                stored.IsActive = false;
+                stored.RevokedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+                return (false, "Yenileme anahtarının süresi dolmuş. Lütfen tekrar giriş yapın.", null);
+            }
+
+            var platformUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == stored.PlatformUserId && !u.IsDeleted);
+            if (platformUser == null || platformUser.Status == "Suspended")
+            {
+                stored.IsActive = false;
+                stored.RevokedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+                return (false, "Kullanıcı bulunamadı veya askıya alınmış.", null);
+            }
+
+            var mainUser = await _context.MainUsers.FirstOrDefaultAsync(u => u.Id == platformUser.ExternalUserId);
+            if (mainUser == null)
+                return (false, "Ana kullanıcı kaydı bulunamadı.", null);
+
+            // Rotasyon: eski token'ı iptal et, yenisini üret ve eskisini yenisi ile işaretle.
+            var newTokens = await IssueTokenPairAsync(platformUser, mainUser);
+
+            stored.IsActive = false;
+            stored.RevokedAt = DateTime.UtcNow;
+            stored.ReplacedByToken = newTokens.RefreshToken;
+            await _context.SaveChangesAsync();
+
+            return (true, "Token yenilendi.", newTokens);
+        }
+
+        public async Task<(bool IsSuccess, string Message)> LogoutAsync(string refreshToken)
+        {
+            if (string.IsNullOrWhiteSpace(refreshToken))
+                return (true, "Çıkış yapıldı.");
+
+            var stored = await _context.UserRefreshTokens
+                .FirstOrDefaultAsync(t => t.Token == refreshToken);
+
+            if (stored != null && stored.IsActive)
+            {
+                stored.IsActive = false;
+                stored.RevokedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+            }
+
+            return (true, "Çıkış yapıldı.");
+        }
+
+        // --- Yardımcı: Access + Refresh çifti üret ---
+        private async Task<AuthTokenResponse> IssueTokenPairAsync(User platformUser, MainUser mainUser)
+        {
+            var accessMinutes = double.Parse(
+                _configuration["JwtSettings:AccessTokenDurationInMinutes"]
+                ?? _configuration["JwtSettings:DurationInMinutes"]
+                ?? "15");
+            var refreshDays = double.Parse(_configuration["JwtSettings:RefreshTokenDurationInDays"] ?? "30");
+
+            var accessExpiresAt = DateTime.UtcNow.AddMinutes(accessMinutes);
+            var refreshExpiresAt = DateTime.UtcNow.AddDays(refreshDays);
 
             var tokenHandler = new JwtSecurityTokenHandler();
             var key = Encoding.ASCII.GetBytes(_configuration["JwtSettings:SecretKey"]!);
@@ -158,16 +244,38 @@ namespace BelekCommunity.Api.Services
                     new Claim("ExternalId", mainUser.Id.ToString()),
                     new Claim(ClaimTypes.Role, mainUser.UserType)
                 }),
-                Expires = DateTime.UtcNow.AddMinutes(double.Parse(_configuration["JwtSettings:DurationInMinutes"]!)),
+                Expires = accessExpiresAt,
                 SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature),
                 Issuer = _configuration["JwtSettings:Issuer"],
                 Audience = _configuration["JwtSettings:Audience"]
             };
 
-            var token = tokenHandler.CreateToken(tokenDescriptor);
-            var tokenString = tokenHandler.WriteToken(token);
+            var accessToken = tokenHandler.WriteToken(tokenHandler.CreateToken(tokenDescriptor));
+            var refreshToken = GenerateRefreshToken();
 
-            return (true, "Giriş başarılı", tokenString, platformUser.Id, $"{platformUser.FirstName} {platformUser.LastName}", platformUser.ProfileImageUrl);
+            _context.UserRefreshTokens.Add(new UserRefreshToken
+            {
+                PlatformUserId = platformUser.Id,
+                Token = refreshToken,
+                ExpiresAt = refreshExpiresAt,
+                CreatedAt = DateTime.UtcNow,
+                IsActive = true
+            });
+            await _context.SaveChangesAsync();
+
+            return new AuthTokenResponse
+            {
+                AccessToken = accessToken,
+                RefreshToken = refreshToken,
+                AccessTokenExpiresAt = accessExpiresAt,
+                RefreshTokenExpiresAt = refreshExpiresAt
+            };
+        }
+
+        private static string GenerateRefreshToken()
+        {
+            var bytes = RandomNumberGenerator.GetBytes(64);
+            return Convert.ToBase64String(bytes);
         }
 
         public async Task<UserProfileResponse?> GetUserProfileAsync(int platformUserId)

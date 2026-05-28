@@ -110,5 +110,102 @@ namespace BelekCommunity.Api.Controllers
             if (ts.TotalDays < 30) return $"{(int)ts.TotalDays} GÜN ÖNCE";
             return $"{(int)(ts.TotalDays / 30)} AY ÖNCE";
         }
+
+        [HttpGet("statistics")]
+        [Authorize(Roles = "SuperAdmin,Admin")]
+        public async Task<IActionResult> GetStatistics()
+        {
+            var categoryDistribution = await _context.Communities
+                .Where(c => !c.IsDeleted && c.Status == "Active")
+                .GroupBy(c => c.Category != null ? c.Category.Name : "Kategorisiz")
+                .Select(g => new { Category = g.Key, Count = g.Count() })
+                .ToListAsync();
+
+            var sixMonthsAgo = DateTime.UtcNow.AddMonths(-5);
+            var firstOfMonth = new DateTime(sixMonthsAgo.Year, sixMonthsAgo.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+
+            var memberMonthly = await _context.CommunityMembers
+                .Where(m => !m.IsDeleted && m.CreatedAt >= firstOfMonth)
+                .GroupBy(m => new { m.CreatedAt.Year, m.CreatedAt.Month })
+                .Select(g => new { g.Key.Year, g.Key.Month, Count = g.Count() })
+                .ToListAsync();
+
+            var eventMonthly = await _context.Events
+                .Where(e => !e.IsDeleted && e.CreatedAt >= firstOfMonth)
+                .GroupBy(e => new { e.CreatedAt.Year, e.CreatedAt.Month })
+                .Select(g => new { g.Key.Year, g.Key.Month, Count = g.Count() })
+                .ToListAsync();
+
+            var months = new List<object>();
+            for (int i = 0; i < 6; i++)
+            {
+                var dt = firstOfMonth.AddMonths(i);
+                var m = memberMonthly.FirstOrDefault(x => x.Year == dt.Year && x.Month == dt.Month)?.Count ?? 0;
+                var e = eventMonthly.FirstOrDefault(x => x.Year == dt.Year && x.Month == dt.Month)?.Count ?? 0;
+                months.Add(new { Year = dt.Year, Month = dt.Month, Label = dt.ToString("MMM yy"), Members = m, Events = e });
+            }
+
+            var topCommunities = await _context.Communities
+                .Where(c => !c.IsDeleted && c.Status == "Active")
+                .Select(c => new
+                {
+                    c.Id,
+                    c.Name,
+                    MemberCount = c.Members.Count(m => m.Status == "Active" && !m.IsDeleted),
+                    CategoryName = c.Category != null ? c.Category.Name : "Genel"
+                })
+                .OrderByDescending(c => c.MemberCount)
+                .Take(5)
+                .ToListAsync();
+
+            var topEvents = await _context.Events
+                .Where(e => !e.IsDeleted && !e.IsCancelled)
+                .Select(e => new
+                {
+                    e.Id,
+                    e.Title,
+                    CommunityName = e.Community != null ? e.Community.Name : "",
+                    ParticipantCount = _context.EventParticipants.Count(p => p.EventId == e.Id && !p.IsDeleted),
+                    e.StartDate
+                })
+                .OrderByDescending(e => e.ParticipantCount)
+                .Take(5)
+                .ToListAsync();
+
+            return Ok(new
+            {
+                CategoryDistribution = categoryDistribution,
+                MonthlyTrends = months,
+                TopCommunities = topCommunities,
+                TopEvents = topEvents
+            });
+        }
+
+        [HttpGet("system-logs")]
+        [Authorize(Roles = "SuperAdmin,Admin")]
+        public async Task<IActionResult> GetSystemLogs([FromQuery] int page = 1, [FromQuery] int pageSize = 50, [FromQuery] string? action = null, [FromQuery] int? userId = null)
+        {
+            var query = _context.SystemLogs.Where(l => !l.IsDeleted);
+            if (!string.IsNullOrEmpty(action)) query = query.Where(l => l.Action == action);
+            if (userId.HasValue) query = query.Where(l => l.PlatformUserId == userId.Value);
+
+            var total = await query.CountAsync();
+            var items = await query
+                .OrderByDescending(l => l.CreatedAt)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(l => new
+                {
+                    l.Id,
+                    l.PlatformUserId,
+                    l.Action,
+                    l.Details,
+                    l.IpAddress,
+                    l.CreatedAt
+                })
+                .ToListAsync();
+
+            return Ok(new { Total = total, Page = page, PageSize = pageSize, Items = items });
+        }
     }
 }

@@ -15,11 +15,13 @@ namespace BelekCommunity.Api.Controllers
     {
         private readonly IUserService _userService;
         private readonly BelekCommunityDbContext _context;
+        private readonly ISystemLogService _systemLog;
 
-        public UsersController(IUserService userService, BelekCommunityDbContext context)
+        public UsersController(IUserService userService, BelekCommunityDbContext context, ISystemLogService systemLog)
         {
             _userService = userService;
             _context = context;
+            _systemLog = systemLog;
         }
 
         [HttpPost("register")]
@@ -55,16 +57,47 @@ namespace BelekCommunity.Api.Controllers
 
             var result = await _userService.LoginAsync(request);
 
-            if (!result.IsSuccess)
+            if (!result.IsSuccess || result.Tokens == null)
                 return Unauthorized(new { message = result.Message, reason = result.Message });
 
             return Ok(new
             {
-                Token = result.Token,
+                // Geriye dönük uyumluluk için "Token" alanı access token'ı taşımaya devam ediyor.
+                Token = result.Tokens.AccessToken,
+                AccessToken = result.Tokens.AccessToken,
+                RefreshToken = result.Tokens.RefreshToken,
+                AccessTokenExpiresAt = result.Tokens.AccessTokenExpiresAt,
+                RefreshTokenExpiresAt = result.Tokens.RefreshTokenExpiresAt,
                 UserId = result.UserId,
                 FullName = result.FullName,
                 ProfileImage = result.ProfileImage
             });
+        }
+
+        [HttpPost("refresh")]
+        public async Task<IActionResult> Refresh([FromBody] RefreshTokenRequest request)
+        {
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+
+            var result = await _userService.RefreshTokenAsync(request.RefreshToken);
+
+            if (!result.IsSuccess || result.Tokens == null)
+                return Unauthorized(new { message = result.Message });
+
+            return Ok(new
+            {
+                AccessToken = result.Tokens.AccessToken,
+                RefreshToken = result.Tokens.RefreshToken,
+                AccessTokenExpiresAt = result.Tokens.AccessTokenExpiresAt,
+                RefreshTokenExpiresAt = result.Tokens.RefreshTokenExpiresAt
+            });
+        }
+
+        [HttpPost("logout")]
+        public async Task<IActionResult> Logout([FromBody] RefreshTokenRequest request)
+        {
+            await _userService.LogoutAsync(request.RefreshToken);
+            return Ok(new { Message = "Çıkış yapıldı." });
         }
 
         [HttpGet]
@@ -150,6 +183,45 @@ namespace BelekCommunity.Api.Controllers
             return Ok(new { Message = result.Message });
         }
 
+        [HttpGet("{id}/devices")]
+        [Authorize(Roles = "SuperAdmin")]
+        public async Task<IActionResult> GetUserDevices(int id)
+        {
+            var devices = await _context.UserDevices
+                .Where(d => d.PlatformUserId == id)
+                .OrderByDescending(d => d.LastActiveAt)
+                .Select(d => new
+                {
+                    d.Id,
+                    d.DeviceType,
+                    d.DeviceName,
+                    d.LastActiveAt,
+                    d.CreatedAt,
+                    d.IsActive
+                })
+                .ToListAsync();
+            return Ok(devices);
+        }
+
+        [HttpDelete("{id}/sessions")]
+        [Authorize(Roles = "SuperAdmin")]
+        public async Task<IActionResult> RevokeAllUserSessions(int id)
+        {
+            var tokens = await _context.UserRefreshTokens
+                .Where(t => t.PlatformUserId == id && t.IsActive)
+                .ToListAsync();
+
+            foreach (var t in tokens)
+            {
+                t.IsActive = false;
+                t.RevokedAt = DateTime.UtcNow;
+            }
+
+            await _context.SaveChangesAsync();
+            await _systemLog.LogAsync("UserSessionsRevoked", $"Target user #{id} — {tokens.Count} sessions revoked by admin");
+            return Ok(new { Message = $"{tokens.Count} oturum sonlandırıldı.", RevokedCount = tokens.Count });
+        }
+
         [HttpPut("{id}/status")]
         [Authorize(Roles = "SuperAdmin")]
         public async Task<IActionResult> UpdateUserStatus(int id, [FromBody] UpdateUserStatusRequest request)
@@ -161,7 +233,72 @@ namespace BelekCommunity.Api.Controllers
             if (!result.IsSuccess)
                 return BadRequest(new { Message = result.Message });
 
+            await _systemLog.LogAsync("UserStatusChanged", $"Target user #{id} → {request.Status}");
             return Ok(new { Message = result.Message });
+        }
+
+        [HttpGet("me/devices")]
+        [Authorize]
+        public async Task<IActionResult> GetMyDevices()
+        {
+            var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userIdString)) return Unauthorized();
+            int currentUserId = int.Parse(userIdString);
+
+            var devices = await _context.UserDevices
+                .Where(d => d.PlatformUserId == currentUserId)
+                .OrderByDescending(d => d.LastActiveAt)
+                .Select(d => new
+                {
+                    d.Id,
+                    d.DeviceType,
+                    d.DeviceName,
+                    d.LastActiveAt,
+                    d.CreatedAt,
+                    d.IsActive
+                })
+                .ToListAsync();
+
+            return Ok(devices);
+        }
+
+        [HttpDelete("me/devices/{deviceId}")]
+        [Authorize]
+        public async Task<IActionResult> DeleteMyDevice(int deviceId)
+        {
+            var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userIdString)) return Unauthorized();
+            int currentUserId = int.Parse(userIdString);
+
+            var device = await _context.UserDevices.FirstOrDefaultAsync(d => d.Id == deviceId && d.PlatformUserId == currentUserId);
+            if (device == null) return NotFound(new { Message = "Cihaz bulunamadı." });
+
+            _context.UserDevices.Remove(device);
+            await _context.SaveChangesAsync();
+            return Ok(new { Message = "Cihaz kaydı silindi." });
+        }
+
+        [HttpDelete("me/sessions")]
+        [Authorize]
+        public async Task<IActionResult> RevokeOtherSessions([FromBody] RefreshTokenRequest request)
+        {
+            var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userIdString)) return Unauthorized();
+            int currentUserId = int.Parse(userIdString);
+
+            // Bu cihazın refresh token'ı dışındaki tüm aktif token'ları iptal et
+            var tokensToRevoke = await _context.UserRefreshTokens
+                .Where(t => t.PlatformUserId == currentUserId && t.IsActive && t.Token != request.RefreshToken)
+                .ToListAsync();
+
+            foreach (var t in tokensToRevoke)
+            {
+                t.IsActive = false;
+                t.RevokedAt = DateTime.UtcNow;
+            }
+
+            await _context.SaveChangesAsync();
+            return Ok(new { Message = $"{tokensToRevoke.Count} oturum sonlandırıldı.", RevokedCount = tokensToRevoke.Count });
         }
 
         [HttpPost("devices")]

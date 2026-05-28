@@ -15,12 +15,16 @@ namespace BelekCommunity.Api.Controllers
     public class CommunitiesController : ControllerBase
     {
         private readonly BelekCommunityDbContext _context;
-        private readonly ICommunityService _communityService; 
+        private readonly ICommunityService _communityService;
+        private readonly ICommunityChatService _communityChatService;
+        private readonly ISystemLogService _systemLog;
 
-        public CommunitiesController(BelekCommunityDbContext context, ICommunityService communityService)
+        public CommunitiesController(BelekCommunityDbContext context, ICommunityService communityService, ICommunityChatService communityChatService, ISystemLogService systemLog)
         {
             _context = context;
             _communityService = communityService;
+            _communityChatService = communityChatService;
+            _systemLog = systemLog;
         }
 
         [HttpGet]
@@ -48,6 +52,13 @@ namespace BelekCommunity.Api.Controllers
                 query = query.Where(c => c.Category != null && c.Category.Name.ToLower() == lowerCategory);
             }
 
+            var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            int currentUserId = 0;
+            if (!string.IsNullOrEmpty(userIdString))
+            {
+                int.TryParse(userIdString, out currentUserId);
+            }
+
             var communities = await query
                 .Select(c => new
                 {
@@ -60,6 +71,8 @@ namespace BelekCommunity.Api.Controllers
                     LogoUrl = c.LogoUrl,
                     CoverImageUrl = c.CoverImageUrl,
                     c.CreatedAt,
+                    MemberCount = c.Members.Count(m => m.Status == "Active"),
+                    IsJoined = c.Members.Any(m => m.PlatformUserId == currentUserId && m.Status == "Active"),
                     PresidentName = c.Members
                         .Where(m => m.Status == "Active" && (m.CommunityRole.Name == "Başkan" || m.CommunityRole.Name == "Admin"))
                         .Select(m => m.PlatformUser.FirstName + " " + m.PlatformUser.LastName)
@@ -112,7 +125,88 @@ namespace BelekCommunity.Api.Controllers
 
             return Ok(result);
         }
-        
+
+        [HttpGet("{id}/messages")]
+        public async Task<IActionResult> GetMessages(int id, [FromQuery] int page = 1, [FromQuery] int pageSize = 50)
+        {
+            var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userIdString)) return Unauthorized();
+            int currentUserId = int.Parse(userIdString);
+
+            var result = await _communityChatService.GetCommunityMessagesAsync(id, currentUserId, page, pageSize);
+
+            if (!result.IsSuccess)
+                return StatusCode(403, new { Message = result.Message });
+
+            return Ok(result.Data);
+        }
+
+        [HttpPost("{id}/messages/read")]
+        public async Task<IActionResult> MarkMessagesAsRead(int id, [FromBody] MarkMessagesReadRequest request)
+        {
+            var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userIdString)) return Unauthorized();
+            int currentUserId = int.Parse(userIdString);
+
+            var result = await _communityChatService.MarkMessagesAsReadAsync(id, currentUserId, request.MessageIds ?? new List<Guid>());
+            if (!result.IsSuccess)
+                return StatusCode(403, new { Message = result.Message });
+
+            return Ok(new { Message = result.Message, MarkedIds = result.MarkedIds });
+        }
+
+        [HttpGet("{id}/messages/unread-count")]
+        public async Task<IActionResult> GetUnreadCount(int id)
+        {
+            var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userIdString)) return Unauthorized();
+            int currentUserId = int.Parse(userIdString);
+
+            var count = await _communityChatService.GetUnreadCountAsync(id, currentUserId);
+            return Ok(new { UnreadCount = count });
+        }
+
+        [HttpPut("{id}/messages/{messageId}")]
+        public async Task<IActionResult> EditMessage(int id, Guid messageId, [FromBody] EditMessageRequest request)
+        {
+            var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userIdString)) return Unauthorized();
+            int currentUserId = int.Parse(userIdString);
+
+            var result = await _communityChatService.EditMessageAsync(messageId, currentUserId, request.Content ?? string.Empty);
+            if (!result.IsSuccess)
+            {
+                if (result.Message.Contains("yetkiniz", StringComparison.OrdinalIgnoreCase))
+                    return StatusCode(403, new { Message = result.Message });
+                if (result.Message.Contains("bulunamadı", StringComparison.OrdinalIgnoreCase))
+                    return NotFound(new { Message = result.Message });
+                return BadRequest(new { Message = result.Message });
+            }
+
+            return Ok(result.Data);
+        }
+
+        [HttpDelete("{id}/messages/{messageId}")]
+        public async Task<IActionResult> DeleteMessage(int id, Guid messageId)
+        {
+            var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userIdString)) return Unauthorized();
+            int currentUserId = int.Parse(userIdString);
+
+            var result = await _communityChatService.DeleteMessageAsync(messageId, currentUserId);
+            if (!result.IsSuccess)
+            {
+                if (result.Message.Contains("yetkiniz", StringComparison.OrdinalIgnoreCase))
+                    return StatusCode(403, new { Message = result.Message });
+                if (result.Message.Contains("bulunamadı", StringComparison.OrdinalIgnoreCase))
+                    return NotFound(new { Message = result.Message });
+                return BadRequest(new { Message = result.Message });
+            }
+
+            return Ok(new { Message = result.Message });
+        }
+
+
 
         [Authorize(Roles = "SuperAdmin")]
         [HttpPost]
@@ -304,6 +398,10 @@ namespace BelekCommunity.Api.Controllers
                 await _context.SaveChangesAsync();
             }
 
+            await _systemLog.LogAsync(
+                action: request.Status == "Active" ? "CommunityApproved" : "CommunityRejected",
+                details: $"Community #{id} ({community.Name}) → {request.Status}");
+
             return Ok(new { Message = $"Topluluk başarıyla {request.Status} yapıldı." });
         }
 
@@ -320,6 +418,64 @@ namespace BelekCommunity.Api.Controllers
 
             return Ok(new { Message = "Kategori başarıyla güncellendi." });
         }
+
+        // ===== Kategori CRUD =====
+        [Authorize(Roles = "SuperAdmin")]
+        [HttpPost("categories")]
+        public async Task<IActionResult> CreateCategory([FromBody] CategoryUpsertRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.Name))
+                return BadRequest(new { Message = "Kategori adı boş olamaz." });
+
+            var exists = await _context.CommunityCategories.AnyAsync(c => !c.IsDeleted && c.Name.ToLower() == request.Name.ToLower());
+            if (exists) return BadRequest(new { Message = "Bu isimde bir kategori zaten var." });
+
+            var cat = new CommunityCategory { Name = request.Name.Trim(), CreatedAt = DateTime.UtcNow };
+            _context.CommunityCategories.Add(cat);
+            await _context.SaveChangesAsync();
+            await _systemLog.LogAsync("CategoryCreated", $"#{cat.Id} {cat.Name}");
+            return Ok(new { cat.Id, cat.Name });
+        }
+
+        [Authorize(Roles = "SuperAdmin")]
+        [HttpPut("categories/{categoryId}")]
+        public async Task<IActionResult> UpdateCategoryEntry(int categoryId, [FromBody] CategoryUpsertRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.Name))
+                return BadRequest(new { Message = "Kategori adı boş olamaz." });
+
+            var cat = await _context.CommunityCategories.FirstOrDefaultAsync(c => c.Id == categoryId && !c.IsDeleted);
+            if (cat == null) return NotFound(new { Message = "Kategori bulunamadı." });
+
+            cat.Name = request.Name.Trim();
+            cat.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+            await _systemLog.LogAsync("CategoryUpdated", $"#{cat.Id} {cat.Name}");
+            return Ok(new { cat.Id, cat.Name });
+        }
+
+        [Authorize(Roles = "SuperAdmin")]
+        [HttpDelete("categories/{categoryId}")]
+        public async Task<IActionResult> DeleteCategoryEntry(int categoryId)
+        {
+            var cat = await _context.CommunityCategories.FirstOrDefaultAsync(c => c.Id == categoryId && !c.IsDeleted);
+            if (cat == null) return NotFound(new { Message = "Kategori bulunamadı." });
+
+            var inUse = await _context.Communities.AnyAsync(c => !c.IsDeleted && c.CategoryId == categoryId);
+            if (inUse) return BadRequest(new { Message = "Bu kategori bazı topluluklarda kullanılıyor. Önce o toplulukların kategorisini değiştirin." });
+
+            cat.IsDeleted = true;
+            cat.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+            await _systemLog.LogAsync("CategoryDeleted", $"#{cat.Id} {cat.Name}");
+            return Ok(new { Message = "Kategori silindi." });
+        }
+
+    }
+
+    public class CategoryUpsertRequest
+    {
+        public string Name { get; set; } = string.Empty;
     }
 
     public class UpdateCategoryRequest
@@ -338,5 +494,15 @@ namespace BelekCommunity.Api.Controllers
         public string Description { get; set; } = string.Empty;
         public string AdvisorName { get; set; } = string.Empty;
         public string? CategoryName { get; set; }
+    }
+
+    public class MarkMessagesReadRequest
+    {
+        public List<Guid>? MessageIds { get; set; }
+    }
+
+    public class EditMessageRequest
+    {
+        public string? Content { get; set; }
     }
 }

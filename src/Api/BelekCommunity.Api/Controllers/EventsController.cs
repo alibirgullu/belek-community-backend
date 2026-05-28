@@ -89,6 +89,22 @@ namespace BelekCommunity.Api.Controllers
             return Ok(new { Message = result.Message });
         }
         
+        [HttpGet("{eventId}/participants")]
+        [Authorize]
+        public async Task<IActionResult> GetParticipants(int eventId)
+        {
+            var participants = await _eventService.GetParticipantsAsync(eventId);
+            return Ok(participants);
+        }
+
+        [HttpGet("{eventId}/feedback")]
+        [Authorize(Roles = "SuperAdmin,Admin")]
+        public async Task<IActionResult> GetFeedbackReport(int eventId)
+        {
+            var report = await _eventService.GetFeedbackReportAsync(eventId);
+            return Ok(report);
+        }
+
         [HttpPut("{eventId}/cancel")]
         [Authorize]
         public async Task<IActionResult> Cancel(int eventId)

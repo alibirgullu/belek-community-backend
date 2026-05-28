@@ -1,4 +1,4 @@
-﻿using BelekCommunity.Api.Entities;
+using BelekCommunity.Api.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace BelekCommunity.Api.Data
@@ -11,6 +11,7 @@ namespace BelekCommunity.Api.Data
         }
 
         public DbSet<MainUser> MainUsers { get; set; } // public.users
+        public DbSet<UserAuth> UserAuths { get; set; } // public.user_auth
         public DbSet<User> Users { get; set; }         // belek...platform_users
 
         public DbSet<Community> Communities { get; set; }
@@ -29,12 +30,20 @@ namespace BelekCommunity.Api.Data
         public DbSet<UserRefreshToken> UserRefreshTokens { get; set; }
         public DbSet<SystemLog> SystemLogs { get; set; }
         public DbSet<AiChatLog> AiChatLogs { get; set; }
+        public DbSet<CommunityMessage> CommunityMessages { get; set; }
+        public DbSet<CommunityMessageRead> CommunityMessageReads { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             modelBuilder.HasDefaultSchema("belek_student_community");
 
             modelBuilder.Entity<MainUser>().ToTable("users", "public");
+            modelBuilder.Entity<UserAuth>().ToTable("user_auth", "public");
+
+            modelBuilder.Entity<MainUser>()
+                .HasOne(u => u.UserAuth)
+                .WithOne(ua => ua.MainUser)
+                .HasForeignKey<UserAuth>(ua => ua.UserId);
 
             modelBuilder.Entity<User>().ToTable("platform_users");
             modelBuilder.Entity<Community>().ToTable("communities");
@@ -53,6 +62,11 @@ namespace BelekCommunity.Api.Data
             modelBuilder.Entity<UserRefreshToken>().ToTable("user_refresh_tokens");
             modelBuilder.Entity<SystemLog>().ToTable("system_logs");
             modelBuilder.Entity<AiChatLog>().ToTable("ai_chat_logs");
+            modelBuilder.Entity<CommunityMessage>().ToTable("community_messages");
+            modelBuilder.Entity<CommunityMessageRead>().ToTable("community_message_reads");
+
+            modelBuilder.Entity<CommunityMessageRead>()
+                .HasKey(mr => new { mr.MessageId, mr.PlatformUserId });
 
             // Global Filtreler (Silinmiş verileri otomatik gizle)
             modelBuilder.Entity<User>().HasQueryFilter(u => !u.IsDeleted);
@@ -61,6 +75,7 @@ namespace BelekCommunity.Api.Data
             modelBuilder.Entity<EventParticipant>().HasQueryFilter(ep => !ep.IsDeleted);
             modelBuilder.Entity<EventFeedback>().HasQueryFilter(ef => !ef.IsDeleted);
             modelBuilder.Entity<Announcement>().HasQueryFilter(a => !a.IsDeleted);
+            modelBuilder.Entity<CommunityMessage>().HasQueryFilter(m => !m.IsDeleted);
         }
     }
 }

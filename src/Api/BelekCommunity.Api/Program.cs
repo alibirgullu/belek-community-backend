@@ -47,9 +47,27 @@ builder.Services.AddAuthentication(options =>
         ValidAudience = jwtSettings["Audience"],
         IssuerSigningKey = new SymmetricSecurityKey(secretKey)
     };
+
+    options.Events = new JwtBearerEvents
+    {
+        OnMessageReceived = context =>
+        {
+            var accessToken = context.Request.Query["access_token"];
+            var path = context.HttpContext.Request.Path;
+
+            // Eğer istek bir SignalR hub'ına geliyorsa ve query string'de token varsa al
+            if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
+            {
+                context.Token = accessToken;
+            }
+            return Task.CompletedTask;
+        }
+    };
 });
 
 
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<BelekCommunity.Api.Services.ISystemLogService, BelekCommunity.Api.Services.SystemLogService>();
 builder.Services.AddScoped<BelekCommunity.Api.Services.EmailService>();
 builder.Services.AddScoped<BelekCommunity.Api.Services.IEventService, BelekCommunity.Api.Services.EventService>();
 builder.Services.AddScoped<BelekCommunity.Api.Services.IAnnouncementService, BelekCommunity.Api.Services.AnnouncementService>();
@@ -57,8 +75,14 @@ builder.Services.AddScoped<BelekCommunity.Api.Services.IUserService, BelekCommun
 builder.Services.AddScoped<BelekCommunity.Api.Services.IFileService, BelekCommunity.Api.Services.FileService>();
 builder.Services.AddScoped<BelekCommunity.Api.Services.ICommunityService, BelekCommunity.Api.Services.CommunityService>();
 builder.Services.AddScoped<BelekCommunity.Api.Services.ICommunityMemberService, BelekCommunity.Api.Services.CommunityMemberService>();
+builder.Services.AddScoped<BelekCommunity.Api.Services.ICommunityChatService, BelekCommunity.Api.Services.CommunityChatService>();
 builder.Services.AddHttpClient<BelekCommunity.Api.Services.IAiChatService, BelekCommunity.Api.Services.AiChatService>();
 builder.Services.AddHttpClient<BelekCommunity.Api.Services.IPushNotificationService, BelekCommunity.Api.Services.PushNotificationService>();
+builder.Services.AddSingleton<BelekCommunity.Api.Hubs.PresenceTracker>();
+builder.Services.AddSignalR(options =>
+{
+    options.EnableDetailedErrors = builder.Environment.IsDevelopment();
+});
 builder.Services.AddControllers().AddJsonOptions(options => { options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles; });
 builder.Services.AddEndpointsApiExplorer();
 
@@ -116,5 +140,6 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHub<BelekCommunity.Api.Hubs.CommunityChatHub>("/hubs/community-chat");
 
 app.Run();

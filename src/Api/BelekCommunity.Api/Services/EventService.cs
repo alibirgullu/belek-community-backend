@@ -252,5 +252,47 @@ namespace BelekCommunity.Api.Services
             await _context.SaveChangesAsync();
             return (true, "Etkinlik iptal edildi ve tüm katılımcılara bilgilendirme e-postası gönderildi.");
         }
+
+        public async Task<List<EventParticipantDto>> GetParticipantsAsync(int eventId)
+        {
+            return await _context.EventParticipants
+                .Include(ep => ep.PlatformUser)
+                .Where(ep => ep.EventId == eventId && !ep.IsDeleted)
+                .OrderByDescending(ep => ep.CreatedAt)
+                .Select(ep => new EventParticipantDto
+                {
+                    PlatformUserId = ep.PlatformUserId,
+                    FullName = (ep.PlatformUser.FirstName + " " + ep.PlatformUser.LastName).Trim(),
+                    ProfileImageUrl = ep.PlatformUser.ProfileImageUrl,
+                    Status = ep.Status,
+                    CheckedIn = ep.CheckedIn,
+                    CreatedAt = ep.CreatedAt
+                })
+                .ToListAsync();
+        }
+
+        public async Task<EventFeedbackReportDto> GetFeedbackReportAsync(int eventId)
+        {
+            var feedbacks = await _context.EventFeedbacks
+                .Include(f => f.PlatformUser)
+                .Where(f => f.EventId == eventId)
+                .OrderByDescending(f => f.CreatedAt)
+                .ToListAsync();
+
+            return new EventFeedbackReportDto
+            {
+                Count = feedbacks.Count,
+                AverageRating = feedbacks.Count > 0 ? Math.Round(feedbacks.Average(f => f.Rating), 2) : 0,
+                Items = feedbacks.Select(f => new EventFeedbackItemDto
+                {
+                    Id = f.Id,
+                    PlatformUserId = f.PlatformUserId,
+                    FullName = (f.PlatformUser.FirstName + " " + f.PlatformUser.LastName).Trim(),
+                    Rating = f.Rating,
+                    Comment = f.Comment,
+                    CreatedAt = f.CreatedAt
+                }).ToList()
+            };
+        }
     }
 }

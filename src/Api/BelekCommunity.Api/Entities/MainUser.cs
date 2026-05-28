@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations.Schema;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace BelekCommunity.Api.Entities
 {
@@ -14,8 +14,6 @@ namespace BelekCommunity.Api.Entities
         [Column("email")]
         public string Email { get; set; } = string.Empty;
 
-        [Column("password_hash")]
-        public string PasswordHash { get; set; } = string.Empty;
 
         [Column("first_name")]
         public string FirstName { get; set; } = string.Empty;
@@ -43,18 +41,13 @@ namespace BelekCommunity.Api.Entities
         [Column("email_verified_at")]
         public DateTime? EmailVerifiedAt { get; set; }
 
-        
-        [Column("password_reset_token")]
-        public string? PasswordResetToken { get; set; }
-
-        
-        [Column("password_reset_expires")]
-        public DateTime? PasswordResetExpires { get; set; }
 
         [Column("create_date")] 
         public DateTime CreateDate { get; set; } = DateTime.UtcNow;
 
         [Column("update_date")]
         public DateTime? UpdateDate { get; set; }
+
+        public UserAuth? UserAuth { get; set; }
     }
 }

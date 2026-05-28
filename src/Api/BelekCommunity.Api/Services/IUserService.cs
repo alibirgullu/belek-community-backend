@@ -7,8 +7,11 @@ namespace BelekCommunity.Api.Services
         Task<(bool IsSuccess, string Message, string? Email)> RegisterAsync(RegisterRequest request);
         Task<(bool IsSuccess, string Message)> VerifyEmailAsync(VerifyEmailRequest request);
         Task<UserProfileResponse?> GetUserProfileAsync(int platformUserId);
-        
-        Task<(bool IsSuccess, string Message, string? Token, int? UserId, string? FullName, string? ProfileImage)> LoginAsync(CreateUserRequest request);
+
+        Task<(bool IsSuccess, string Message, AuthTokenResponse? Tokens, int? UserId, string? FullName, string? ProfileImage)> LoginAsync(CreateUserRequest request);
+        Task<(bool IsSuccess, string Message, AuthTokenResponse? Tokens)> RefreshTokenAsync(string refreshToken);
+        Task<(bool IsSuccess, string Message)> LogoutAsync(string refreshToken);
+
         Task<(bool IsSuccess, string Message)> UpdateProfileAsync(int platformUserId, UpdateProfileRequest request);
         Task<(bool IsSuccess, string Message)> ForgotPasswordAsync(string email);
         Task<(bool IsSuccess, string Message)> ResetPasswordAsync(ResetPasswordRequest request);

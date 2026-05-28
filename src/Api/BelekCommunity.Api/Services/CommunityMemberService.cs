@@ -235,5 +235,35 @@ namespace BelekCommunity.Api.Services
             await _context.SaveChangesAsync();
             return (true, "Kullanıcı rolü başarıyla güncellendi.");
         }
+
+        public Task<bool> IsActiveMemberAsync(int communityId, int userId)
+        {
+            return _context.CommunityMembers
+                .AnyAsync(m => m.CommunityId == communityId
+                            && m.PlatformUserId == userId
+                            && !m.IsDeleted
+                            && m.Status == "Active");
+        }
+
+        public async Task<int[]> GetUserActiveCommunityIdsAsync(int userId)
+        {
+            return await _context.CommunityMembers
+                .Where(m => m.PlatformUserId == userId && !m.IsDeleted && m.Status == "Active")
+                .Select(m => m.CommunityId)
+                .ToArrayAsync();
+        }
+
+        public async Task<bool> CanModerateAsync(int communityId, int userId)
+        {
+            return await _context.CommunityMembers
+                .Include(m => m.CommunityRole)
+                .AnyAsync(m => m.CommunityId == communityId
+                            && m.PlatformUserId == userId
+                            && !m.IsDeleted
+                            && m.Status == "Active"
+                            && (m.CommunityRole.IsExecutive
+                                || m.CommunityRole.Name == "Admin"
+                                || m.CommunityRole.Name == "Başkan"));
+        }
     }
 }
